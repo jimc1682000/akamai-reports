@@ -1,0 +1,204 @@
+# Taskfile for Akamai Traffic Report Project
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  PYTHON: python
+  PIP: pip
+  COVERAGE_MIN: 90
+
+tasks:
+  # Development tasks
+  install:
+    desc: Install project dependencies
+    cmds:
+      - "{{.PIP}} install -r requirements-test.txt"
+      - "{{.PIP}} install ruff pre-commit"
+
+  setup:
+    desc: Setup development environment
+    deps: [install]
+    cmds:
+      - pre-commit install
+      - echo "✅ Development environment setup complete"
+
+  # Code quality tasks
+  lint:
+    desc: Run ruff linter
+    cmds:
+      - ruff check .
+    silent: false
+
+  lint-fix:
+    desc: Run ruff linter with auto-fixes
+    cmds:
+      - ruff check . --fix
+    silent: false
+
+  format:
+    desc: Format code with ruff formatter
+    cmds:
+      - ruff format .
+    silent: false
+
+  format-check:
+    desc: Check code formatting without making changes
+    cmds:
+      - ruff format . --check
+    silent: false
+
+  quality:
+    desc: Run all code quality checks
+    deps: [lint-fix, format]
+    cmds:
+      - echo "✅ Code quality checks complete"
+
+  # Testing tasks
+  test:
+    desc: Run unit tests
+    cmds:
+      - "{{.PYTHON}} -m pytest -v"
+
+  test-coverage:
+    desc: Run tests with coverage report
+    cmds:
+      - "{{.PYTHON}} -m pytest --cov=. --cov-report=html:htmlcov --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under={{.COVERAGE_MIN}} -v"
+
+  test-quick:
+    desc: Run tests without coverage (faster)
+    cmds:
+      - "{{.PYTHON}} -m pytest -x -v"
+
+  test-runner:
+    desc: Run tests using custom test runner
+    cmds:
+      - "{{.PYTHON}} run_tests.py"
+
+  coverage-report:
+    desc: Open HTML coverage report
+    cmds:
+      - open htmlcov/index.html
+    platforms: [darwin]
+
+  coverage-report-linux:
+    desc: Open HTML coverage report (Linux)
+    cmds:
+      - xdg-open htmlcov/index.html
+    platforms: [linux]
+
+  # Configuration tasks
+  config-check:
+    desc: Validate configuration
+    cmds:
+      - "{{.PYTHON}} config_loader.py"
+
+  config-template:
+    desc: Show configuration template
+    cmds:
+      - cat config.template.json
+
+  # Application tasks
+  run:
+    desc: Run traffic report (automatic mode - defaults to weekly)
+    cmds:
+      - "{{.PYTHON}} traffic.py"
+
+  run-manual:
+    desc: Run traffic report with manual date range
+    cmds:
+      - "{{.PYTHON}} traffic.py --start {{.START_DATE}} --end {{.END_DATE}}"
+    vars:
+      START_DATE: '{{.START_DATE | default "YYYY-MM-DD"}}'
+      END_DATE: '{{.END_DATE | default "YYYY-MM-DD"}}'
+
+  # Pre-commit tasks
+  pre-commit:
+    desc: Run pre-commit hooks on all files
+    cmds:
+      - pre-commit run --all-files
+
+  pre-commit-update:
+    desc: Update pre-commit hooks
+    cmds:
+      - pre-commit autoupdate
+
+  # Clean tasks
+  clean:
+    desc: Clean temporary files and caches
+    cmds:
+      - rm -rf __pycache__
+      - rm -rf .pytest_cache
+      - rm -rf htmlcov
+      - rm -f .coverage
+      - rm -f coverage.xml
+      - rm -f test_report_*.json
+      - rm -f traffic_report_*.json
+      - echo "✅ Cleaned temporary files"
+
+  clean-all:
+    desc: Clean all generated files including reports
+    deps: [clean]
+    cmds:
+      - find . -name "*.pyc" -delete
+      - find . -name "__pycache__" -type d -exec rm -rf {} +
+      - echo "✅ Deep clean complete"
+
+  # Git tasks
+  check-status:
+    desc: Check git status and recent commits
+    cmds:
+      - git status
+      - echo "Recent commits:"
+      - git log --oneline -5
+
+  # CI/Development workflow
+  ci:
+    desc: Run full CI pipeline locally
+    deps: [quality, test-coverage]
+    cmds:
+      - echo "✅ CI pipeline complete - ready for commit"
+
+  dev-check:
+    desc: Quick development checks before commit
+    deps: [lint-fix, format, test-quick]
+    cmds:
+      - echo "✅ Development checks complete"
+
+  # Documentation tasks
+  docs:
+    desc: Show project documentation
+    cmds:
+      - echo "📖 Project Documentation:"
+      - 'echo "- README.md: Project overview and usage"'
+      - 'echo "- CLAUDE.md: Development guidance"'
+      - 'echo "- config.template.json: Configuration template"'
+      - 'echo "- Taskfile.yml: Available tasks (this file)"'
+
+  help:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  # Environment info
+  info:
+    desc: Show environment information
+    cmds:
+      - echo "🐍 Python version:"
+      - "{{.PYTHON}} --version"
+      - echo "📦 Pip version:"
+      - "{{.PIP}} --version"
+      - echo "🔧 Ruff version:"
+      - ruff --version
+      - echo "🪝 Pre-commit version:"
+      - pre-commit --version
+      - echo "🧪 Pytest version:"
+      - "{{.PYTHON}} -m pytest --version"
+
+# Default task when running 'task' without arguments
+default:
+  desc: Show help and available tasks
+  cmds:
+    - echo "🚀 Akamai Traffic Report - Task Runner"
+    - echo "Available tasks:"
+    - task --list

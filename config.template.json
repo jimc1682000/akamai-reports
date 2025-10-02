@@ -1,0 +1,92 @@
+{
+  "_comment": "Akamai Traffic Report Configuration Template",
+  "_instructions": [
+    "複製此檔案為 'config.json' 並填入實際值",
+    "config.json 已被加入 .gitignore，請勿提交包含敏感資訊的檔案"
+  ],
+
+  "api": {
+    "_description": "Akamai API 相關設定",
+    "endpoints": {
+      "traffic": "https://YOUR_AKAMAI_ENDPOINT/reporting-api/v2/reports/delivery/traffic/current/data",
+      "emissions": "https://YOUR_AKAMAI_ENDPOINT/reporting-api/v2/reports/delivery/traffic/emissions/data"
+    },
+    "timeout": 60,
+    "max_retries": 3,
+
+    "retry_delays": {
+      "_description": "重試延遲配置",
+      "exponential_backoff_base": 2,
+      "_backoff_note": "指數退避基數 (延遲時間 = 基數^嘗試次數)，預設為 2",
+      "network_error_delay": 1.0,
+      "_network_note": "網路錯誤後的固定延遲秒數，預設為 1.0 秒",
+      "rate_limit_delay": 0.5,
+      "_rate_limit_note": "API 呼叫間的延遲秒數以避免速率限制，預設為 0.5 秒"
+    },
+
+    "thresholds": {
+      "_description": "警告和限制閾值",
+      "data_point_warning_ratio": 0.9,
+      "_warning_note": "當數據點達到限制的此比例時發出警告 (0.9 = 90%)"
+    },
+
+    "edgerc_section": "default",
+    "_edgerc_note": "要使用的 ~/.edgerc 檔案中的 section 名稱"
+  },
+
+  "business": {
+    "_description": "業務相關配置 (敏感資訊)",
+    "cp_codes": [
+      "PLACEHOLDER_CP_CODE_001",
+      "PLACEHOLDER_CP_CODE_002",
+      "PLACEHOLDER_CP_CODE_003"
+    ],
+    "_cp_codes_comment": "填入實際的 CP codes，數量依業務需求而定",
+    "service_mappings": {
+      "PLACEHOLDER_CP_CODE_001": {
+        "name": "服務名稱 1",
+        "unit": "TB",
+        "description": "服務描述"
+      },
+      "PLACEHOLDER_CP_CODE_002": {
+        "name": "服務名稱 2",
+        "unit": "GB",
+        "description": "服務描述"
+      },
+      "_comment": "根據實際需求填入服務映射，可使用任意 CP codes"
+    },
+    "billing_coefficient": 1.0,
+    "_billing_note": "計費修正係數，根據實際業務需求調整。範例: 1.05 表示實際計費為 Edge 流量的 105%"
+  },
+
+  "reporting": {
+    "_description": "報告生成相關設定",
+    "week_definition": "sunday_to_saturday",
+    "_week_options": [
+      "sunday_to_saturday - 週日到週六 (預設)",
+      "monday_to_sunday - 週一到週日",
+      "monday_to_friday - 週一到週五 (工作日)",
+      "custom - 自定義起始日"
+    ],
+    "custom_start_day": 0,
+    "_custom_start_day_note": "當 week_definition 為 'custom' 時使用，0=週日, 1=週一, ..., 6=週六",
+
+    "region_mappings": {
+      "REGION_CODE_1": "地區名稱 1",
+      "REGION_CODE_2": "地區名稱 2",
+      "REGION_CODE_3": "地區名稱 3",
+      "_comment": "填入實際的 ISO 3166-1 alpha-2 國家代碼 (例如: US, JP, SG 等)"
+    },
+    "_target_regions_note": "腳本會根據 region_mappings 的 keys 自動查詢對應地區的流量"
+  },
+
+  "system": {
+    "_description": "系統運行參數",
+    "data_point_limit": 50000,
+    "_data_point_limit_note": "API 單次查詢數據點上限"
+  },
+
+  "_version": "1.0",
+  "_last_updated": "2024-09-24",
+  "_security_note": "此檔案包含敏感業務資訊，請勿提交到版本控制系統"
+}

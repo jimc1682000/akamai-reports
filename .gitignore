@@ -1,0 +1,88 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+# Exception: our source code libraries
+!tools/lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 環境變數
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# 系統檔案
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Akamai 認證檔案
+.edgerc
+.edgerc_*
+
+# 輸出檔案
+weekly_traffic_report_*.json
+test_report_*.json
+*.log
+logs/
+
+# CSV 報告檔案
+*.csv
+v1_*.csv
+v2_*.csv
+daily_*.csv
+
+# 配置檔案 (包含敏感資訊)
+config.json
+*.config.json
+
+# 測試和覆蓋率報告
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# 代碼品質工具
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# 臨時檔案
+*.tmp
+*.temp
+*.bak
+*.backup

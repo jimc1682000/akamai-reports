@@ -1,0 +1,98 @@
+# Pre-commit configuration for Akamai Traffic Report project
+# This file configures automated code quality checks that run before commits
+
+repos:
+  # Ruff linter and formatter - fast Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Use the specific version that matches our requirements
+    rev: v0.13.0
+    hooks:
+      # Run ruff linter with auto-fixes
+      - id: ruff
+        name: "Ruff Linter"
+        description: "Run ruff linter with auto-fixes"
+        args: [--fix]
+        types: [python]
+
+      # Run ruff formatter
+      - id: ruff-format
+        name: "Ruff Formatter"
+        description: "Format Python code with ruff"
+        types: [python]
+
+  # General code quality hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Remove trailing whitespace
+      - id: trailing-whitespace
+        name: "Remove trailing whitespace"
+
+      # Ensure files end with newlines
+      - id: end-of-file-fixer
+        name: "Fix end of files"
+
+      # Check YAML file syntax
+      - id: check-yaml
+        name: "Check YAML syntax"
+
+      # Check for merge conflicts
+      - id: check-merge-conflict
+        name: "Check for merge conflicts"
+
+      # Check for large files (>500kb)
+      - id: check-added-large-files
+        name: "Check for large files"
+        args: ['--maxkb=500']
+
+      # Validate JSON files
+      - id: check-json
+        name: "Check JSON syntax"
+        exclude: '^config\.json$'  # Exclude actual config which may have secrets
+
+      # Check Python AST (syntax validation)
+      - id: check-ast
+        name: "Check Python AST"
+        types: [python]
+
+  # Python-specific quality checks (disabled - ruff handles import sorting)
+  # - repo: https://github.com/pycqa/isort
+  #   rev: 5.13.2
+  #   hooks:
+  #     # Sort Python imports
+  #     - id: isort
+  #       name: "Sort imports (isort)"
+  #       args: ["--profile", "black", "--line-length", "88"]
+  #       types: [python]
+
+# Configuration for specific file patterns
+exclude: |
+  (?x)^(
+      \.git/.*|
+      \.pytest_cache/.*|
+      __pycache__/.*|
+      \.coverage|
+      coverage\.xml|
+      htmlcov/.*|
+      .*\.egg-info/.*|
+      config\.json|
+      test_report_.*\.json|
+      weekly_traffic_report_.*\.json
+  )$
+
+# Global settings
+default_stages: [pre-commit]
+minimum_pre_commit_version: "3.0.0"
+
+# CI configuration (for GitHub Actions or similar)
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false
