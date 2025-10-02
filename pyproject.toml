@@ -1,0 +1,74 @@
+[tool.ruff]
+# Exclude directories and files
+exclude = [
+    ".git",
+    ".pytest_cache",
+    "__pycache__",
+    "*.egg-info",
+    ".venv",
+    "venv",
+    "htmlcov",
+    "build",
+    "dist",
+]
+
+# Set line length to match common Python style
+line-length = 88
+
+# Assume Python 3.8+
+target-version = "py38"
+
+[tool.ruff.lint]
+# Enable specific linting rules
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+]
+
+# Disable specific rules that are too strict for this project
+ignore = [
+    "E501",   # line too long - handled by formatter
+    "B008",   # do not perform function calls in argument defaults
+    "B904",   # raise from None in except blocks
+    "N806",   # variable name should be lowercase (for API variables)
+]
+
+# Allow autofix for all enabled rules (when `--fix`) is provided
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+# Use double quotes for strings
+quote-style = "double"
+
+# Use 4 spaces for indentation
+indent-style = "space"
+
+# Skip magic trailing commas for cleaner diffs
+skip-magic-trailing-comma = false
+
+# Automatically detect the appropriate line ending
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+# Group imports properly
+known-first-party = ["config_loader"]
+force-single-line = false
+lines-after-imports = 2
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore specific rules for test files
+"test_*.py" = [
+    "E501",  # line too long in tests
+    "F401",  # unused imports in tests (for mock setup)
+    "B018",  # useless expressions (for assertion helpers)
+]
+
+# Allow unused imports in __init__.py files
+"__init__.py" = ["F401"]
