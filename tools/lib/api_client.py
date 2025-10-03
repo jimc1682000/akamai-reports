@@ -32,6 +32,7 @@ from tools.lib.exceptions import (
     APIServerError,
     APITimeoutError,
 )
+from tools.lib.http import ConcurrentAPIClient
 from tools.lib.logger import logger
 from tools.lib.resilience import CircuitBreaker
 from tools.lib.utils import bytes_to_gb, bytes_to_tb, format_number
@@ -514,16 +515,23 @@ def get_service_traffic(
 
 
 def get_all_service_traffic(
-    start_date: str, end_date: str, auth: EdgeGridAuth, config_loader: ConfigLoader
+    start_date: str,
+    end_date: str,
+    auth: EdgeGridAuth,
+    config_loader: ConfigLoader,
+    use_concurrent: bool = True,
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Get traffic for all predefined services
+    Get traffic for all predefined services.
+
+    Can execute requests sequentially or concurrently based on use_concurrent flag.
 
     Args:
         start_date (str): Start date in ISO-8601 format
         end_date (str): End date in ISO-8601 format
         auth: EdgeGrid authentication object
         config_loader: ConfigLoader instance with loaded configuration
+        use_concurrent (bool): Use concurrent execution (default: True)
 
     Returns:
         dict: Contains traffic data for all services
@@ -531,16 +539,43 @@ def get_all_service_traffic(
     service_mappings = config_loader.get_service_mappings()
     logger.info("\n🔍 查詢所有個別服務流量")
 
-    results = {}
+    cp_codes = list(service_mappings.keys())
 
-    for cp_code in service_mappings.keys():
-        result = get_service_traffic(cp_code, start_date, end_date, auth, config_loader)
-        results[cp_code] = result
+    if not cp_codes:
+        logger.warning("⚠️  No services configured")
+        return {}
 
-        # Add small delay between requests to be nice to the API
-        time.sleep(config_loader.get_rate_limit_delay())
+    if use_concurrent and len(cp_codes) > 1:
+        # Concurrent execution for better performance
+        client = ConcurrentAPIClient(
+            max_workers=min(3, len(cp_codes)),  # Limit to 3 concurrent requests
+            rate_limit_delay=config_loader.get_rate_limit_delay(),
+        )
 
-    return results
+        results = client.execute_batch(
+            get_service_traffic,
+            cp_codes,
+            start_date=start_date,
+            end_date=end_date,
+            auth=auth,
+            config_loader=config_loader,
+        )
+
+        client.shutdown()
+        return results
+    else:
+        # Sequential execution (legacy behavior)
+        results = {}
+        for cp_code in cp_codes:
+            result = get_service_traffic(
+                cp_code, start_date, end_date, auth, config_loader
+            )
+            results[cp_code] = result
+
+            # Add small delay between requests to be nice to the API
+            time.sleep(config_loader.get_rate_limit_delay())
+
+        return results
 
 
 def call_emissions_api(
@@ -660,16 +695,23 @@ def get_regional_traffic(
 
 
 def get_all_regional_traffic(
-    start_date: str, end_date: str, auth: EdgeGridAuth, config_loader: ConfigLoader
+    start_date: str,
+    end_date: str,
+    auth: EdgeGridAuth,
+    config_loader: ConfigLoader,
+    use_concurrent: bool = True,
 ) -> Dict[str, Any]:
     """
-    Get edge traffic for all target regions (ID, TW, SG)
+    Get edge traffic for all target regions (ID, TW, SG).
+
+    Can execute requests sequentially or concurrently based on use_concurrent flag.
 
     Args:
         start_date (str): Start date in ISO-8601 format
         end_date (str): End date in ISO-8601 format
         auth: EdgeGrid authentication object
         config_loader: ConfigLoader instance with loaded configuration
+        use_concurrent (bool): Use concurrent execution (default: True)
 
     Returns:
         dict: Contains traffic data for all regions
@@ -677,29 +719,52 @@ def get_all_regional_traffic(
     logger.info("\n🔍 查詢所有地區 Edge 流量")
 
     target_regions = config_loader.get_target_regions()
-    results = {}
     total_regional_traffic = 0
     successful_queries = 0
 
-    for country_code in target_regions:
-        result = get_regional_traffic(
-            country_code, start_date, end_date, auth, config_loader
+    if use_concurrent and len(target_regions) > 1:
+        # Concurrent execution for better performance
+        client = ConcurrentAPIClient(
+            max_workers=min(3, len(target_regions)),  # Limit to 3 concurrent requests
+            rate_limit_delay=config_loader.get_rate_limit_delay(),
         )
-        results[country_code] = result
 
+        results = client.execute_batch(
+            get_regional_traffic,
+            target_regions,
+            start_date=start_date,
+            end_date=end_date,
+            auth=auth,
+            config_loader=config_loader,
+        )
+
+        client.shutdown()
+    else:
+        # Sequential execution (legacy behavior)
+        results = {}
+        for country_code in target_regions:
+            result = get_regional_traffic(
+                country_code, start_date, end_date, auth, config_loader
+            )
+            results[country_code] = result
+
+            # Add delay between requests
+            time.sleep(config_loader.get_rate_limit_delay())
+
+    # Calculate summary
+    for _country_code, result in results.items():
         if result.get("success"):
             total_regional_traffic += result["total_tb"]
             successful_queries += 1
-
-        # Add delay between requests
-        time.sleep(config_loader.get_rate_limit_delay())
 
     # Add summary information
     results["_summary"] = {
         "total_regions": len(target_regions),
         "successful_queries": successful_queries,
         "total_regional_traffic_tb": total_regional_traffic,
-        "success_rate": (successful_queries / len(target_regions)) * 100,
+        "success_rate": (
+            (successful_queries / len(target_regions)) * 100 if target_regions else 0
+        ),
     }
 
     logger.info(f"\n📊 地區流量總計: {format_number(total_regional_traffic)} TB")
