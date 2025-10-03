@@ -83,7 +83,23 @@
   "system": {
     "_description": "系統運行參數",
     "data_point_limit": 50000,
-    "_data_point_limit_note": "API 單次查詢數據點上限"
+    "_data_point_limit_note": "API 單次查詢數據點上限",
+
+    "concurrency": {
+      "_description": "並行執行配置",
+      "max_workers": 3,
+      "_max_workers_note": "並行 API 請求的最大工作執行緒數，預設為 3"
+    },
+
+    "circuit_breaker": {
+      "_description": "電路斷路器配置，用於防止級聯故障",
+      "failure_threshold": 3,
+      "_failure_threshold_note": "觸發斷路器開啟所需的失敗次數，預設為 3",
+      "recovery_timeout": 30,
+      "_recovery_timeout_note": "斷路器開啟後等待多少秒才嘗試恢復，預設為 30 秒",
+      "success_threshold": 2,
+      "_success_threshold_note": "從半開狀態恢復到關閉狀態所需的成功次數，預設為 2"
+    }
   },
 
   "_version": "1.0",

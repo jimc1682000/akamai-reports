@@ -54,20 +54,62 @@ from tools.lib.utils import bytes_to_gb, bytes_to_tb, format_number
 # Global cache for API responses (disabled by default, enable via env var)
 _response_cache = ResponseCache(cache_dir=".cache", ttl_seconds=7200)  # 2 hour TTL
 
-# Global circuit breakers for each API endpoint
-_traffic_circuit_breaker = CircuitBreaker(
-    failure_threshold=3, recovery_timeout=30, success_threshold=2, name="Traffic API"
-)
+# Global circuit breakers for each API endpoint (initialized with defaults)
+_traffic_circuit_breaker: Optional[CircuitBreaker] = None
+_emissions_circuit_breaker: Optional[CircuitBreaker] = None
 
-_emissions_circuit_breaker = CircuitBreaker(
-    failure_threshold=3, recovery_timeout=30, success_threshold=2, name="Emissions API"
-)
+
+def _get_traffic_circuit_breaker(config_loader: ConfigLoader) -> CircuitBreaker:
+    """
+    Get or create Traffic API circuit breaker with config-based settings.
+
+    Args:
+        config_loader: Configuration loader instance
+
+    Returns:
+        CircuitBreaker instance for Traffic API
+    """
+    global _traffic_circuit_breaker
+    if _traffic_circuit_breaker is None:
+        _traffic_circuit_breaker = CircuitBreaker(
+            failure_threshold=config_loader.get_circuit_breaker_failure_threshold(),
+            recovery_timeout=config_loader.get_circuit_breaker_recovery_timeout(),
+            success_threshold=config_loader.get_circuit_breaker_success_threshold(),
+            name="Traffic API",
+        )
+    return _traffic_circuit_breaker
+
+
+def _get_emissions_circuit_breaker(config_loader: ConfigLoader) -> CircuitBreaker:
+    """
+    Get or create Emissions API circuit breaker with config-based settings.
+
+    Args:
+        config_loader: Configuration loader instance
+
+    Returns:
+        CircuitBreaker instance for Emissions API
+    """
+    global _emissions_circuit_breaker
+    if _emissions_circuit_breaker is None:
+        _emissions_circuit_breaker = CircuitBreaker(
+            failure_threshold=config_loader.get_circuit_breaker_failure_threshold(),
+            recovery_timeout=config_loader.get_circuit_breaker_recovery_timeout(),
+            success_threshold=config_loader.get_circuit_breaker_success_threshold(),
+            name="Emissions API",
+        )
+    return _emissions_circuit_breaker
 
 
 def reset_circuit_breakers():
     """Reset all circuit breakers to CLOSED state. Useful for testing."""
-    _traffic_circuit_breaker.reset()
-    _emissions_circuit_breaker.reset()
+    global _traffic_circuit_breaker, _emissions_circuit_breaker
+    if _traffic_circuit_breaker:
+        _traffic_circuit_breaker.reset()
+    if _emissions_circuit_breaker:
+        _emissions_circuit_breaker.reset()
+    _traffic_circuit_breaker = None
+    _emissions_circuit_breaker = None
 
 
 def _calculate_backoff_with_jitter(
@@ -105,8 +147,12 @@ def _calculate_backoff_with_jitter(
 def get_circuit_breaker_states() -> dict:
     """Get current state of all circuit breakers."""
     return {
-        "traffic": _traffic_circuit_breaker.get_state(),
-        "emissions": _emissions_circuit_breaker.get_state(),
+        "traffic": _traffic_circuit_breaker.get_state()
+        if _traffic_circuit_breaker
+        else "NOT_INITIALIZED",
+        "emissions": _emissions_circuit_breaker.get_state()
+        if _emissions_circuit_breaker
+        else "NOT_INITIALIZED",
     }
 
 
@@ -513,11 +559,12 @@ def call_traffic_api(
 
     url = config_loader.get_api_endpoints()["traffic"]
     params = {"start": start_date, "end": end_date}
+    circuit_breaker = _get_traffic_circuit_breaker(config_loader)
 
     if enable_cache:
         # Use cache with circuit breaker
         return _response_cache.cached_call(
-            lambda **kw: _traffic_circuit_breaker.call(
+            lambda **kw: circuit_breaker.call(
                 _make_api_request_with_retry,
                 kw["url"],
                 kw["params"],
@@ -535,7 +582,7 @@ def call_traffic_api(
         )
     else:
         # Direct call with circuit breaker only
-        return _traffic_circuit_breaker.call(
+        return circuit_breaker.call(
             _make_api_request_with_retry,
             url,
             params,
@@ -713,8 +760,9 @@ def get_all_service_traffic(
 
     if use_concurrent and len(cp_codes) > 1:
         # Concurrent execution for better performance
+        max_workers = config_loader.get_max_workers()
         client = ConcurrentAPIClient(
-            max_workers=min(3, len(cp_codes)),  # Limit to 3 concurrent requests
+            max_workers=min(max_workers, len(cp_codes)),
             rate_limit_delay=config_loader.get_rate_limit_delay(),
         )
 
@@ -778,9 +826,10 @@ def call_emissions_api(
     """
     url = config_loader.get_api_endpoints()["emissions"]
     params = {"start": start_date, "end": end_date}
+    circuit_breaker = _get_emissions_circuit_breaker(config_loader)
 
     # Use circuit breaker to protect against cascading failures
-    return _emissions_circuit_breaker.call(
+    return circuit_breaker.call(
         _make_api_request_with_retry,
         url,
         params,
@@ -890,8 +939,9 @@ def get_all_regional_traffic(
 
     if use_concurrent and len(target_regions) > 1:
         # Concurrent execution for better performance
+        max_workers = config_loader.get_max_workers()
         client = ConcurrentAPIClient(
-            max_workers=min(3, len(target_regions)),  # Limit to 3 concurrent requests
+            max_workers=min(max_workers, len(target_regions)),
             rate_limit_delay=config_loader.get_rate_limit_delay(),
         )
 
