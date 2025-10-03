@@ -66,8 +66,7 @@ class TestMainFunctionIntegration(unittest.TestCase):
         os.rmdir(self.temp_dir)
 
     @patch("traffic.argparse.ArgumentParser.parse_args")
-    @patch("traffic.load_configuration")
-    @patch("traffic.setup_authentication")
+    @patch("traffic.ServiceContainer")
     @patch("traffic.get_time_range")
     @patch("traffic.get_total_edge_traffic")
     @patch("traffic.get_all_service_traffic")
@@ -86,8 +85,7 @@ class TestMainFunctionIntegration(unittest.TestCase):
         mock_services,
         mock_total,
         mock_time_range,
-        mock_auth,
-        mock_config,
+        mock_container_class,
         mock_args,
     ):
         """Test successful main function execution in automatic mode"""
@@ -95,14 +93,13 @@ class TestMainFunctionIntegration(unittest.TestCase):
         # Mock command line arguments (automatic mode)
         mock_args.return_value = MagicMock(start=None, end=None)
 
-        # Mock configuration loading
+        # Mock service container
+        mock_container = MagicMock()
         mock_config_loader = MagicMock(spec=ConfigLoader)
         mock_config_loader.print_config_summary = MagicMock()
-        mock_config.return_value = mock_config_loader
-
-        # Mock authentication
-        mock_auth_obj = MagicMock()
-        mock_auth.return_value = mock_auth_obj
+        mock_container.config_loader = mock_config_loader
+        mock_container.auth = MagicMock()
+        mock_container_class.return_value = mock_container
 
         # Mock time range calculation
         mock_time_range.return_value = ("2025-09-14T00:00:00Z", "2025-09-20T23:59:59Z")
@@ -133,12 +130,9 @@ class TestMainFunctionIntegration(unittest.TestCase):
         # Verify successful execution
         self.assertEqual(result, 0)
 
-        # Verify configuration was loaded
-        mock_config.assert_called_once()
+        # Verify container was created
+        mock_container_class.assert_called_once()
         mock_config_loader.print_config_summary.assert_called_once()
-
-        # Verify authentication setup
-        mock_auth.assert_called_once()
 
         # Verify time range calculation
         mock_time_range.assert_called_once()
@@ -147,7 +141,7 @@ class TestMainFunctionIntegration(unittest.TestCase):
         mock_total.assert_called_once_with(
             "2025-09-14T00:00:00Z",
             "2025-09-20T23:59:59Z",
-            mock_auth_obj,
+            mock_container.auth,
             mock_config_loader,
         )
         mock_services.assert_called_once()
@@ -163,8 +157,7 @@ class TestMainFunctionIntegration(unittest.TestCase):
         self.assertTrue(any("週報生成完成!" in msg for msg in success_messages))
 
     @patch("traffic.argparse.ArgumentParser.parse_args")
-    @patch("traffic.load_configuration")
-    @patch("traffic.setup_authentication")
+    @patch("traffic.ServiceContainer")
     @patch("traffic.get_time_range")
     @patch("traffic.get_total_edge_traffic")
     @patch("traffic.logger")
@@ -173,8 +166,7 @@ class TestMainFunctionIntegration(unittest.TestCase):
         mock_logger,
         mock_total,
         mock_time_range,
-        mock_auth,
-        mock_config,
+        mock_container_class,
         mock_args,
     ):
         """Test main function with total traffic API failure"""
@@ -182,13 +174,14 @@ class TestMainFunctionIntegration(unittest.TestCase):
         # Mock command line arguments
         mock_args.return_value = MagicMock(start=None, end=None)
 
-        # Mock configuration and auth
+        # Mock service container
+        mock_container = MagicMock()
         mock_config_loader = MagicMock(spec=ConfigLoader)
         mock_config_loader.print_config_summary = MagicMock()
-        mock_config.return_value = mock_config_loader
-        mock_auth.return_value = MagicMock()
+        mock_container.config_loader = mock_config_loader
+        mock_container.auth = MagicMock()
+        mock_container_class.return_value = mock_container
 
-        # Mock time range
         mock_time_range.return_value = ("YYYY-MM-DDT00:00:00Z", "YYYY-MM-DDT23:59:59Z")
 
         # Mock failed total traffic
@@ -206,10 +199,10 @@ class TestMainFunctionIntegration(unittest.TestCase):
         self.assertTrue(any("API connection failed" in msg for msg in error_messages))
 
     @patch("traffic.argparse.ArgumentParser.parse_args")
-    @patch("traffic.load_configuration")
+    @patch("traffic.ServiceContainer")
     @patch("traffic.logger")
     def test_main_function_configuration_error(
-        self, mock_logger, mock_config, mock_args
+        self, mock_logger, mock_container_class, mock_args
     ):
         """Test main function with configuration loading error"""
 
@@ -219,7 +212,9 @@ class TestMainFunctionIntegration(unittest.TestCase):
         # Mock configuration loading failure
         from tools.lib.config_loader import ConfigurationError
 
-        mock_config.side_effect = ConfigurationError("Configuration file not found")
+        mock_container_class.side_effect = ConfigurationError(
+            "Configuration file not found"
+        )
 
         # Execute main function
         result = main()
@@ -235,26 +230,31 @@ class TestMainFunctionIntegration(unittest.TestCase):
         )
 
     @patch("traffic.argparse.ArgumentParser.parse_args")
-    @patch("traffic.load_configuration")
-    @patch("traffic.setup_authentication")
+    @patch("traffic.ServiceContainer")
     @patch("traffic.logger")
     def test_main_function_authentication_error(
-        self, mock_logger, mock_auth, mock_config, mock_args
+        self, mock_logger, mock_container_class, mock_args
     ):
         """Test main function with authentication error"""
 
         # Mock command line arguments
         mock_args.return_value = MagicMock(start=None, end=None)
 
-        # Mock configuration
+        # Mock service container with authentication failure
+        mock_container = MagicMock()
         mock_config_loader = MagicMock(spec=ConfigLoader)
         mock_config_loader.print_config_summary = MagicMock()
-        mock_config.return_value = mock_config_loader
+        mock_container.config_loader = mock_config_loader
 
         # Mock authentication failure
         from tools.lib.exceptions import APIAuthenticationError
 
-        mock_auth.side_effect = APIAuthenticationError("EdgeGrid authentication failed")
+        type(mock_container).auth = property(
+            lambda self: (_ for _ in ()).throw(
+                APIAuthenticationError("EdgeGrid authentication failed")
+            )
+        )
+        mock_container_class.return_value = mock_container
 
         # Execute main function
         result = main()
@@ -270,8 +270,7 @@ class TestMainFunctionIntegration(unittest.TestCase):
         )
 
     @patch("traffic.argparse.ArgumentParser.parse_args")
-    @patch("traffic.load_configuration")
-    @patch("traffic.setup_authentication")
+    @patch("traffic.ServiceContainer")
     @patch("traffic.get_time_range")
     @patch("traffic.get_total_edge_traffic")
     @patch("traffic.get_all_service_traffic")
@@ -290,8 +289,7 @@ class TestMainFunctionIntegration(unittest.TestCase):
         mock_services,
         mock_total,
         mock_time_range,
-        mock_auth,
-        mock_config,
+        mock_container_class,
         mock_args,
     ):
         """Test main function in manual date range mode"""
@@ -299,12 +297,13 @@ class TestMainFunctionIntegration(unittest.TestCase):
         # Mock command line arguments (manual mode)
         mock_args.return_value = MagicMock(start="YYYY-MM-DD", end="YYYY-MM-DD")
 
-        # Mock all dependencies as successful
+        # Mock service container
+        mock_container = MagicMock()
         mock_config_loader = MagicMock(spec=ConfigLoader)
         mock_config_loader.print_config_summary = MagicMock()
-        mock_config.return_value = mock_config_loader
-
-        mock_auth.return_value = MagicMock()
+        mock_container.config_loader = mock_config_loader
+        mock_container.auth = MagicMock()
+        mock_container_class.return_value = mock_container
         mock_time_range.return_value = ("YYYY-MM-DDT00:00:00Z", "YYYY-MM-DDT23:59:59Z")
 
         mock_total.return_value = {"success": True, "total_tb": 100.0}
@@ -484,13 +483,17 @@ class TestEndToEndWorkflow(unittest.TestCase):
         self.assertEqual(regional_result["region_name"], "Region 2")
         self.assertGreater(regional_result["total_tb"], 0)
 
-    @patch("traffic.load_configuration")
-    def test_configuration_integration(self, mock_load_config):
+    @patch("traffic.ServiceContainer")
+    def test_configuration_integration(self, mock_container_class):
         """Test configuration integration with all modules"""
 
         # Load real configuration
         real_config = load_configuration(self.config_file)
-        mock_load_config.return_value = real_config
+
+        # Mock container with real config
+        mock_container = MagicMock()
+        mock_container.config_loader = real_config
+        mock_container_class.return_value = mock_container
 
         # Test configuration accessor methods
         self.assertEqual(len(real_config.get_cp_codes()), 2)
@@ -519,14 +522,14 @@ class TestEndToEndWorkflow(unittest.TestCase):
 class TestErrorHandlingIntegration(unittest.TestCase):
     """Test error handling across module boundaries"""
 
-    @patch("traffic.load_configuration")
+    @patch("traffic.ServiceContainer")
     @patch("traffic.logger")
-    def test_configuration_error_propagation(self, mock_logger, mock_load_config):
+    def test_configuration_error_propagation(self, mock_logger, mock_container_class):
         """Test that configuration errors are properly handled"""
 
         from tools.lib.config_loader import ConfigurationError
 
-        mock_load_config.side_effect = ConfigurationError("Invalid config format")
+        mock_container_class.side_effect = ConfigurationError("Invalid config format")
 
         # Mock sys.argv to avoid argparse issues
         with patch("sys.argv", ["traffic.py"]):
@@ -540,24 +543,24 @@ class TestErrorHandlingIntegration(unittest.TestCase):
 
     @patch("tools.lib.api_client.requests.post")
     @patch("tools.lib.api_client.setup_authentication")
-    @patch("traffic.load_configuration")
+    @patch("traffic.ServiceContainer")
     @patch("traffic.logger")
     def test_api_timeout_handling(
-        self, mock_logger, mock_load_config, mock_auth, mock_requests
+        self, mock_logger, mock_container_class, mock_auth, mock_requests
     ):
         """Test API timeout error handling"""
 
         import requests
 
-        # Mock configuration
+        # Mock container with configuration
+        mock_container = MagicMock()
         mock_config = MagicMock()
         mock_config.get_max_retries.return_value = 2
         mock_config.get_request_timeout.return_value = 1
         mock_config.get_api_endpoints.return_value = {"traffic": "https://example.com"}
-        mock_load_config.return_value = mock_config
-
-        # Mock authentication
-        mock_auth.return_value = MagicMock()
+        mock_container.config_loader = mock_config
+        mock_container.auth = MagicMock()
+        mock_container_class.return_value = mock_container
 
         # Mock timeout on all requests
         mock_requests.side_effect = requests.exceptions.Timeout("Request timeout")
