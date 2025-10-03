@@ -120,6 +120,25 @@ pip install requests akamai-edgegrid-auth
 - **Error Reporting**: Returns 422 status code with detailed validation errors
 - **Backward Compatible**: Disabled by default for zero performance impact
 
+**Error Context and Tracing (NEW)**:
+- **Correlation IDs**: Unique request identifiers for distributed tracing
+  - UUID4-based correlation IDs automatically generated
+  - Thread-safe context storage using contextvars
+  - Included in all API request logs for log correlation
+- **Request Context**: Comprehensive request tracking
+  - API endpoint, parameters, metadata
+  - Automatic duration tracking (milliseconds)
+  - Request lifecycle management
+- **Error Context**: Enhanced error debugging
+  - Stack traces with correlation IDs
+  - Request context capture at error time
+  - Additional context for root cause analysis
+- **Benefits**:
+  - Better error debugging with full context
+  - Request correlation across distributed systems
+  - Performance monitoring with duration tracking
+  - Production-ready error analysis
+
 **Data Processing**:
 - `bytes_to_tb()` / `bytes_to_gb()`: Unit conversion functions
 - Billing estimation using coefficient 1.0 (derived from historical analysis)
@@ -169,8 +188,8 @@ This coefficient (1.0) was derived from comparative analysis with actual billing
 ### Test Suite Overview
 This project maintains **production-ready quality** with comprehensive testing:
 
-- **197 test cases** across 7 test modules
-- **82%+ code coverage** (new features added, coverage expanding)
+- **213 test cases** across 8 test modules
+- **83%+ code coverage** (architecture improvements fully tested)
 - **Automated testing** on every commit via pre-commit hooks
 - **Complete error handling** and edge case coverage
 
@@ -183,6 +202,7 @@ test_api_functions.py     # API interaction tests (31 tests) - includes schema v
 test_report_functions.py  # Report generation tests (17 tests)
 test_integration.py       # End-to-end integration tests (10 tests)
 test_schema_validation.py # Schema validation tests (19 tests) - NEW
+test_tracing.py           # Error context and tracing tests (16 tests) - NEW
 ```
 
 ### Running Tests

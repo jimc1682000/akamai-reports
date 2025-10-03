@@ -93,10 +93,24 @@ class TestCallTrafficAPI(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(len(result["data"]), 1)
 
-        # Verify print calls
-        mock_logger.info.assert_any_call("📡 發送 V2 Traffic API 請求 (嘗試 1/3)")
-        mock_logger.info.assert_any_call("📊 API 回應狀態: 200")
-        mock_logger.info.assert_any_call("✅ 成功! 返回 1 個數據點")
+        # Verify print calls (now include correlation ID and duration)
+        # Check that logger.info was called with messages containing expected text
+        info_calls = [str(call) for call in mock_logger.info.call_args_list]
+        self.assertTrue(
+            any(
+                "📡 發送 V2 Traffic API 請求 (嘗試 1/3)" in str(call)
+                for call in info_calls
+            ),
+            "Expected API request log message not found",
+        )
+        self.assertTrue(
+            any("📊 API 回應狀態: 200" in str(call) for call in info_calls),
+            "Expected status log message not found",
+        )
+        self.assertTrue(
+            any("✅ 成功! 返回 1 個數據點" in str(call) for call in info_calls),
+            "Expected success log message not found",
+        )
 
     @patch("tools.lib.api_client.requests.post")
     @patch("tools.lib.api_client.logger")
@@ -385,10 +399,23 @@ class TestCallEmissionsAPI(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(len(result["data"]), 1)
 
-        # Verify print calls
-        mock_logger.info.assert_any_call("📡 發送 V2 Emissions API 請求 (嘗試 1/3)")
-        mock_logger.info.assert_any_call("📊 API 回應狀態: 200")
-        mock_logger.info.assert_any_call("✅ 成功! 返回 1 個數據點")
+        # Verify print calls (now include correlation ID and duration)
+        info_calls = [str(call) for call in mock_logger.info.call_args_list]
+        self.assertTrue(
+            any(
+                "📡 發送 V2 Emissions API 請求 (嘗試 1/3)" in str(call)
+                for call in info_calls
+            ),
+            "Expected API request log message not found",
+        )
+        self.assertTrue(
+            any("📊 API 回應狀態: 200" in str(call) for call in info_calls),
+            "Expected status log message not found",
+        )
+        self.assertTrue(
+            any("✅ 成功! 返回 1 個數據點" in str(call) for call in info_calls),
+            "Expected success log message not found",
+        )
 
 
 class TestGetTotalEdgeTraffic(unittest.TestCase):
