@@ -21,6 +21,7 @@ from tools.lib.api_client import (
     get_regional_traffic,
     get_service_traffic,
     get_total_edge_traffic,
+    reset_circuit_breakers,
 )
 from tools.lib.config_loader import ConfigLoader
 
@@ -30,6 +31,8 @@ class TestCallTrafficAPI(unittest.TestCase):
 
     def setUp(self):
         """Set up mock config and auth"""
+        # Reset circuit breakers before each test to ensure clean state
+        reset_circuit_breakers()
         self.mock_config = MagicMock(spec=ConfigLoader)
         self.mock_config.get_api_endpoints.return_value = {
             "traffic": "https://example.com/traffic"

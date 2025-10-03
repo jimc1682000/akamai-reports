@@ -33,7 +33,32 @@ from tools.lib.exceptions import (
     APITimeoutError,
 )
 from tools.lib.logger import logger
+from tools.lib.resilience import CircuitBreaker
 from tools.lib.utils import bytes_to_gb, bytes_to_tb, format_number
+
+
+# Global circuit breakers for each API endpoint
+_traffic_circuit_breaker = CircuitBreaker(
+    failure_threshold=3, recovery_timeout=30, success_threshold=2, name="Traffic API"
+)
+
+_emissions_circuit_breaker = CircuitBreaker(
+    failure_threshold=3, recovery_timeout=30, success_threshold=2, name="Emissions API"
+)
+
+
+def reset_circuit_breakers():
+    """Reset all circuit breakers to CLOSED state. Useful for testing."""
+    _traffic_circuit_breaker.reset()
+    _emissions_circuit_breaker.reset()
+
+
+def get_circuit_breaker_states() -> dict:
+    """Get current state of all circuit breakers."""
+    return {
+        "traffic": _traffic_circuit_breaker.get_state(),
+        "emissions": _emissions_circuit_breaker.get_state(),
+    }
 
 
 def setup_authentication(config_loader: Optional[ConfigLoader] = None) -> EdgeGridAuth:
@@ -315,9 +340,9 @@ def call_traffic_api(
     config_loader: ConfigLoader,
 ) -> Optional[Dict[str, Any]]:
     """
-    Call V2 Traffic API with retry mechanism.
+    Call V2 Traffic API with retry mechanism and circuit breaker protection.
 
-    Simplified wrapper around generic request handler.
+    Simplified wrapper around generic request handler with circuit breaker.
 
     Args:
         start_date (str): Start date in ISO-8601 format
@@ -337,11 +362,20 @@ def call_traffic_api(
         APIServerError: If server error occurs (500+)
         APITimeoutError: If request times out
         APINetworkError: If network error occurs
+        CircuitBreakerOpenError: If circuit breaker is open
     """
     url = config_loader.get_api_endpoints()["traffic"]
     params = {"start": start_date, "end": end_date}
-    return _make_api_request_with_retry(
-        url, params, payload, auth, config_loader, "Traffic"
+
+    # Use circuit breaker to protect against cascading failures
+    return _traffic_circuit_breaker.call(
+        _make_api_request_with_retry,
+        url,
+        params,
+        payload,
+        auth,
+        config_loader,
+        "Traffic",
     )
 
 
@@ -517,9 +551,9 @@ def call_emissions_api(
     config_loader: ConfigLoader,
 ) -> Optional[Dict[str, Any]]:
     """
-    Call V2 Emissions API with retry mechanism.
+    Call V2 Emissions API with retry mechanism and circuit breaker protection.
 
-    Simplified wrapper around generic request handler.
+    Simplified wrapper around generic request handler with circuit breaker.
 
     Args:
         start_date (str): Start date in ISO-8601 format
@@ -539,11 +573,20 @@ def call_emissions_api(
         APIServerError: If server error occurs (500+)
         APITimeoutError: If request times out
         APINetworkError: If network error occurs
+        CircuitBreakerOpenError: If circuit breaker is open
     """
     url = config_loader.get_api_endpoints()["emissions"]
     params = {"start": start_date, "end": end_date}
-    return _make_api_request_with_retry(
-        url, params, payload, auth, config_loader, "Emissions"
+
+    # Use circuit breaker to protect against cascading failures
+    return _emissions_circuit_breaker.call(
+        _make_api_request_with_retry,
+        url,
+        params,
+        payload,
+        auth,
+        config_loader,
+        "Emissions",
     )
 
 
