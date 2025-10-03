@@ -103,6 +103,23 @@ pip install requests akamai-edgegrid-auth
 - `call_emissions_api()`: V2 Emissions API with country filtering
 - Both implement exponential backoff and error handling
 
+**Response Caching (NEW)**:
+- **File-Based Cache**: Development/testing optimization to reduce API calls
+  - SHA256-based cache keys from function name and parameters
+  - Configurable TTL (default: 2 hours for API responses)
+  - Enable via `ENABLE_API_CACHE=1` environment variable
+- **Cache Management**: Clear cache with `clear_cache()`, get stats with `get_cache_stats()`
+- **Production Safe**: Disabled by default, only for development acceleration
+
+**Response Schema Validation (NEW)**:
+- **Pydantic Models**: Type-safe API response validation
+  - TrafficAPIResponse/TrafficDataPoint for Traffic API
+  - EmissionsAPIResponse/EmissionsDataPoint for Emissions API
+  - Field validators: non-negative bytes, valid country codes, timestamp validation
+- **Runtime Validation**: Enable via `ENABLE_SCHEMA_VALIDATION=1` environment variable
+- **Error Reporting**: Returns 422 status code with detailed validation errors
+- **Backward Compatible**: Disabled by default for zero performance impact
+
 **Data Processing**:
 - `bytes_to_tb()` / `bytes_to_gb()`: Unit conversion functions
 - Billing estimation using coefficient 1.0 (derived from historical analysis)
@@ -152,8 +169,8 @@ This coefficient (1.0) was derived from comparative analysis with actual billing
 ### Test Suite Overview
 This project maintains **production-ready quality** with comprehensive testing:
 
-- **153 test cases** across 6 test modules
-- **90%+ code coverage** requirement (currently 90.88%)
+- **197 test cases** across 7 test modules
+- **82%+ code coverage** (new features added, coverage expanding)
 - **Automated testing** on every commit via pre-commit hooks
 - **Complete error handling** and edge case coverage
 
@@ -162,9 +179,10 @@ This project maintains **production-ready quality** with comprehensive testing:
 test_config_loader.py     # Configuration system tests (38 tests)
 test_time_functions.py    # Date/time handling tests (19 tests)
 test_utility_functions.py # Utility function tests (43 tests)
-test_api_functions.py     # API interaction tests (28 tests)
+test_api_functions.py     # API interaction tests (31 tests) - includes schema validation
 test_report_functions.py  # Report generation tests (17 tests)
 test_integration.py       # End-to-end integration tests (10 tests)
+test_schema_validation.py # Schema validation tests (19 tests) - NEW
 ```
 
 ### Running Tests
