@@ -11,6 +11,7 @@ Date: 2025-10-02
 """
 
 import argparse
+from datetime import datetime
 
 from tools.lib.api_client import (
     get_all_regional_traffic,
@@ -34,6 +35,45 @@ from tools.lib.reporters import (
 from tools.lib.time_handler import get_time_range
 
 
+def validate_date_format(date_str: str) -> str:
+    """
+    Validate and sanitize date input.
+
+    Accepts YYYY-MM-DD or ISO-8601 format and returns ISO-8601 with time.
+
+    Args:
+        date_str: Date string to validate
+
+    Returns:
+        ISO-8601 formatted datetime string (YYYY-MM-DDTHH:MM:SSZ)
+
+    Raises:
+        argparse.ArgumentTypeError: If date format is invalid
+
+    Examples:
+        >>> validate_date_format("2025-01-01")
+        '2025-01-01T00:00:00Z'
+        >>> validate_date_format("2025-01-01T12:00:00Z")
+        '2025-01-01T12:00:00Z'
+    """
+    try:
+        # Try parsing as ISO-8601 first
+        if "T" in date_str:
+            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        else:
+            # Parse YYYY-MM-DD format and set time to 00:00:00
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+
+        # Return in consistent ISO-8601 format
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(
+            f"Invalid date format: '{date_str}'. "
+            f"Expected YYYY-MM-DD or ISO-8601 format (e.g., 2025-01-01 or 2025-01-01T00:00:00Z)"
+        ) from e
+
+
 def main(container: ServiceContainer = None) -> int:
     """
     Main function to orchestrate the weekly traffic report generation.
@@ -50,10 +90,21 @@ def main(container: ServiceContainer = None) -> int:
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description="Generate weekly Akamai traffic report"
+        description="Generate weekly Akamai traffic report",
+        epilog="Example: python traffic.py --start 2025-01-01 --end 2025-01-07",
     )
-    parser.add_argument("--start", help="Start date (YYYY-MM-DD)", type=str)
-    parser.add_argument("--end", help="End date (YYYY-MM-DD)", type=str)
+    parser.add_argument(
+        "--start",
+        help="Start date (YYYY-MM-DD or ISO-8601 format)",
+        type=validate_date_format,
+        metavar="DATE",
+    )
+    parser.add_argument(
+        "--end",
+        help="End date (YYYY-MM-DD or ISO-8601 format)",
+        type=validate_date_format,
+        metavar="DATE",
+    )
 
     args = parser.parse_args()
 
