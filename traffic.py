@@ -23,6 +23,7 @@ from tools.lib.exceptions import (
     APIAuthenticationError,
     APIRateLimitError,
     APITimeoutError,
+    CircuitBreakerOpenError,
 )
 from tools.lib.logger import logger
 from tools.lib.reporters import (
@@ -160,6 +161,12 @@ def main(container: ServiceContainer = None) -> int:
     except APITimeoutError as e:
         logger.error(f"\n❌ 請求超時: {e}")
         logger.error("   請檢查網路連線或稍後再試")
+        return 1
+
+    except CircuitBreakerOpenError as e:
+        logger.error(f"\n❌ 電路斷路器開啟: {e}")
+        logger.error("   API 服務異常,系統已進入保護模式")
+        logger.error(f"   請等待 {e.time_until_retry:.0f} 秒後重試")
         return 1
 
     except AkamaiAPIError as e:

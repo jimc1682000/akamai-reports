@@ -15,7 +15,8 @@ Exception Hierarchy:
     ├── APIRateLimitError (429 Too Many Requests)
     ├── APIServerError (500+ Server Errors)
     ├── APITimeoutError (Request Timeout)
-    └── APINetworkError (Network Connection Errors)
+    ├── APINetworkError (Network Connection Errors)
+    └── CircuitBreakerOpenError (Circuit Breaker Protection)
 
 Usage Example:
     try:
@@ -128,6 +129,23 @@ class APINetworkError(AkamaiAPIError):
     pass
 
 
+class CircuitBreakerOpenError(AkamaiAPIError):
+    """
+    Raised when circuit breaker is open and blocking requests.
+
+    This exception indicates that too many failures have occurred and the
+    circuit breaker has entered an open state to prevent cascading failures.
+
+    Attributes:
+        message (str): Error message with circuit breaker details
+        time_until_retry (float): Seconds until circuit breaker allows retry
+    """
+
+    def __init__(self, message: str, time_until_retry: float = 0):
+        super().__init__(message)
+        self.time_until_retry = time_until_retry
+
+
 __all__ = [
     "AkamaiAPIError",
     "APIRequestError",
@@ -137,4 +155,5 @@ __all__ = [
     "APIServerError",
     "APITimeoutError",
     "APINetworkError",
+    "CircuitBreakerOpenError",
 ]
