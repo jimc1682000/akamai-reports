@@ -24,6 +24,7 @@ from tools.lib.api_client import (
     reset_circuit_breakers,
 )
 from tools.lib.config_loader import ConfigLoader
+from tools.lib.exceptions import APIRequestError
 
 
 class TestCallTrafficAPI(unittest.TestCase):
@@ -795,6 +796,161 @@ class TestEmissionsAPIErrorHandling(unittest.TestCase):
 
         self.assertIn("Request timeout", str(context.exception))
         mock_logger.info.assert_any_call("⏱️  請求超時，嘗試重試...")
+
+
+class TestSchemaValidation(unittest.TestCase):
+    """Test cases for API response schema validation"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        reset_circuit_breakers()
+
+    @patch("tools.lib.api_client.requests.post")
+    def test_traffic_api_with_schema_validation_success(self, mock_post):
+        """Test traffic API call with schema validation enabled"""
+        import os
+
+        # Enable schema validation via env var
+        os.environ["ENABLE_SCHEMA_VALIDATION"] = "true"
+        os.environ["ENABLE_API_CACHE"] = "false"  # Disable cache for this test
+
+        try:
+            # Mock valid response
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "data": [
+                    {
+                        "time": "2025-09-24T00:00:00Z",
+                        "edgeBytesTotal": 1000000,
+                        "edgeHitsTotal": 500,
+                    }
+                ]
+            }
+            mock_post.return_value = mock_response
+
+            # Create mock objects
+            mock_auth = MagicMock()
+            mock_config = MagicMock()
+            mock_config.get_max_retries.return_value = 3
+            mock_config.get_request_timeout.return_value = 60
+            mock_config.get_data_point_limit.return_value = 50000
+            mock_config.get_data_point_warning_threshold.return_value = 0.8
+            mock_config.get_api_endpoints.return_value = {
+                "traffic": "https://api.example.com/traffic"
+            }
+
+            # Call API
+            result = call_traffic_api(
+                "2025-09-24T00:00:00Z",
+                "2025-09-30T23:59:59Z",
+                {"dimensions": ["time5minutes"]},
+                mock_auth,
+                mock_config,
+            )
+
+            # Verify result
+            self.assertIsNotNone(result)
+            self.assertEqual(len(result["data"]), 1)
+        finally:
+            # Clean up env vars
+            os.environ.pop("ENABLE_SCHEMA_VALIDATION", None)
+            os.environ.pop("ENABLE_API_CACHE", None)
+
+    @patch("tools.lib.api_client.requests.post")
+    def test_traffic_api_with_schema_validation_failure(self, mock_post):
+        """Test traffic API call with invalid schema"""
+        import os
+
+        # Enable schema validation via env var
+        os.environ["ENABLE_SCHEMA_VALIDATION"] = "1"
+        os.environ["ENABLE_API_CACHE"] = "false"  # Disable cache for this test
+
+        try:
+            # Mock invalid response (missing required edgeBytesTotal)
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "data": [{"time": "2025-09-24T00:00:00Z"}]  # Missing edgeBytesTotal
+            }
+            mock_post.return_value = mock_response
+
+            # Create mock objects
+            mock_auth = MagicMock()
+            mock_config = MagicMock()
+            mock_config.get_max_retries.return_value = 3
+            mock_config.get_request_timeout.return_value = 60
+            mock_config.get_data_point_limit.return_value = 50000
+            mock_config.get_data_point_warning_threshold.return_value = 0.8
+            mock_config.get_api_endpoints.return_value = {
+                "traffic": "https://api.example.com/traffic"
+            }
+
+            # Call API and expect validation error
+            with self.assertRaises(APIRequestError) as context:
+                call_traffic_api(
+                    "2025-09-24T00:00:00Z",
+                    "2025-09-30T23:59:59Z",
+                    {"dimensions": ["time5minutes"]},
+                    mock_auth,
+                    mock_config,
+                )
+
+            self.assertEqual(context.exception.status_code, 422)
+            self.assertIn("Schema validation failed", str(context.exception))
+        finally:
+            # Clean up env vars
+            os.environ.pop("ENABLE_SCHEMA_VALIDATION", None)
+            os.environ.pop("ENABLE_API_CACHE", None)
+
+    @patch("tools.lib.api_client.requests.post")
+    def test_emissions_api_with_schema_validation_success(self, mock_post):
+        """Test emissions API call with schema validation enabled"""
+        import os
+
+        # Enable schema validation via env var
+        os.environ["ENABLE_SCHEMA_VALIDATION"] = "yes"
+
+        try:
+            # Mock valid response
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "data": [
+                    {
+                        "time": "2025-09-24T00:00:00Z",
+                        "country": "ID",
+                        "edgeBytesTotal": 5000000,
+                        "carbonIntensity": 0.45,
+                    }
+                ]
+            }
+            mock_post.return_value = mock_response
+
+            # Create mock objects
+            mock_auth = MagicMock()
+            mock_config = MagicMock()
+            mock_config.get_max_retries.return_value = 3
+            mock_config.get_request_timeout.return_value = 60
+            mock_config.get_api_endpoints.return_value = {
+                "emissions": "https://api.example.com/emissions"
+            }
+
+            # Call API
+            result = call_emissions_api(
+                "2025-09-24T00:00:00Z",
+                "2025-09-30T23:59:59Z",
+                {"dimensions": ["time1day"]},
+                mock_auth,
+                mock_config,
+            )
+
+            # Verify result
+            self.assertIsNotNone(result)
+            self.assertEqual(len(result["data"]), 1)
+        finally:
+            # Clean up env vars
+            os.environ.pop("ENABLE_SCHEMA_VALIDATION", None)
 
 
 if __name__ == "__main__":

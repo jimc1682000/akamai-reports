@@ -16,11 +16,13 @@ Functions:
     - get_all_regional_traffic(): Query all regions
 """
 
+import os
 import time
 from typing import Any, Dict, Optional
 
 import requests
 from akamai.edgegrid import EdgeGridAuth, EdgeRc
+from pydantic import ValidationError
 
 from tools.lib.cache import ResponseCache
 from tools.lib.config_loader import ConfigLoader
@@ -35,6 +37,7 @@ from tools.lib.exceptions import (
 )
 from tools.lib.http import ConcurrentAPIClient
 from tools.lib.logger import logger
+from tools.lib.models import EmissionsAPIResponse, TrafficAPIResponse
 from tools.lib.resilience import CircuitBreaker
 from tools.lib.utils import bytes_to_gb, bytes_to_tb, format_number
 
@@ -223,7 +226,7 @@ def _handle_success_response(
     response: requests.Response, config_loader: ConfigLoader, api_type: str
 ) -> Dict[str, Any]:
     """
-    Handle successful API response (200 OK).
+    Handle successful API response (200 OK) with optional schema validation.
 
     Args:
         response: HTTP response object
@@ -232,6 +235,9 @@ def _handle_success_response(
 
     Returns:
         dict: Parsed JSON response data
+
+    Raises:
+        APIRequestError: If schema validation fails
     """
     data = response.json()
     data_points = len(data.get("data", []))
@@ -241,7 +247,40 @@ def _handle_success_response(
     if api_type == "Traffic":
         _check_data_point_limit(data_points, config_loader)
 
+    # Optional schema validation (disabled by default for backward compatibility)
+    env_validate = os.getenv("ENABLE_SCHEMA_VALIDATION", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if env_validate:
+        _validate_response_schema(data, api_type)
+
     return data
+
+
+def _validate_response_schema(data: Dict[str, Any], api_type: str) -> None:
+    """
+    Validate API response against Pydantic schema.
+
+    Args:
+        data: API response data
+        api_type: API type ("Traffic" or "Emissions")
+
+    Raises:
+        APIRequestError: If validation fails
+    """
+    try:
+        if api_type == "Traffic":
+            TrafficAPIResponse(**data)
+            logger.debug(f"✅ Schema validation passed for {api_type} API")
+        elif api_type == "Emissions":
+            EmissionsAPIResponse(**data)
+            logger.debug(f"✅ Schema validation passed for {api_type} API")
+    except ValidationError as e:
+        error_msg = f"Schema validation failed for {api_type} API: {e}"
+        logger.error(f"❌ {error_msg}")
+        raise APIRequestError(422, error_msg) from e
 
 
 def _check_data_point_limit(data_points: int, config_loader: ConfigLoader) -> None:
