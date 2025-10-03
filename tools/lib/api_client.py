@@ -17,6 +17,7 @@ Functions:
 """
 
 import os
+import random
 import time
 from typing import Any, Dict, Optional
 
@@ -67,6 +68,38 @@ def reset_circuit_breakers():
     """Reset all circuit breakers to CLOSED state. Useful for testing."""
     _traffic_circuit_breaker.reset()
     _emissions_circuit_breaker.reset()
+
+
+def _calculate_backoff_with_jitter(
+    attempt: int, base: int = 2, max_delay: int = 60
+) -> float:
+    """
+    Calculate exponential backoff delay with full jitter.
+
+    Prevents thundering herd problem by adding randomization to retry delays.
+    Uses "full jitter" strategy as recommended by AWS Architecture Blog.
+
+    Args:
+        attempt: Current retry attempt number (0-indexed)
+        base: Exponential backoff base (default: 2)
+        max_delay: Maximum delay in seconds (default: 60)
+
+    Returns:
+        Delay in seconds with jitter applied
+
+    Examples:
+        >>> delay = _calculate_backoff_with_jitter(0, base=2)
+        >>> 0 <= delay <= 1  # First attempt: 0 to 2^0 seconds
+        True
+        >>> delay = _calculate_backoff_with_jitter(3, base=2, max_delay=10)
+        >>> 0 <= delay <= 8  # Fourth attempt: 0 to min(2^3, 10) seconds
+        True
+    """
+    # Calculate exponential delay capped at max_delay
+    exp_delay = min(base**attempt, max_delay)
+
+    # Apply full jitter: random between 0 and exp_delay
+    return random.uniform(0, exp_delay)
 
 
 def get_circuit_breaker_states() -> dict:
@@ -346,7 +379,7 @@ def _handle_rate_limit(
     attempt: int, max_retries: int, config_loader: ConfigLoader
 ) -> None:
     """
-    Handle rate limit error (429) with retry.
+    Handle rate limit error (429) with exponential backoff and jitter.
 
     Args:
         attempt (int): Current retry attempt
@@ -356,11 +389,11 @@ def _handle_rate_limit(
     Raises:
         APIRateLimitError: If max retries exceeded
     """
-    logger.info("⏳ 速率限制，等待重試...")
-
     if attempt < max_retries - 1:
         backoff_base = config_loader.get_exponential_backoff_base()
-        time.sleep(backoff_base**attempt)
+        delay = _calculate_backoff_with_jitter(attempt, base=backoff_base)
+        logger.info(f"⏳ 速率限制，等待 {delay:.2f}秒後重試...")
+        time.sleep(delay)
         # Will retry in next iteration
     else:
         raise APIRateLimitError()
@@ -370,7 +403,7 @@ def _handle_server_error(
     status_code: int, attempt: int, max_retries: int, config_loader: ConfigLoader
 ) -> None:
     """
-    Handle server error (500+) with retry.
+    Handle server error (500+) with exponential backoff and jitter.
 
     Args:
         status_code (int): HTTP status code
@@ -381,11 +414,11 @@ def _handle_server_error(
     Raises:
         APIServerError: If max retries exceeded
     """
-    logger.info(f"🔧 伺服器錯誤 ({status_code})，等待重試...")
-
     if attempt < max_retries - 1:
         backoff_base = config_loader.get_exponential_backoff_base()
-        time.sleep(backoff_base**attempt)
+        delay = _calculate_backoff_with_jitter(attempt, base=backoff_base)
+        logger.info(f"🔧 伺服器錯誤 ({status_code})，等待 {delay:.2f}秒後重試...")
+        time.sleep(delay)
         # Will retry in next iteration
     else:
         raise APIServerError(status_code)
