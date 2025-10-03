@@ -313,6 +313,56 @@ class ConfigLoader:
             .get("rate_limit_delay", 0.5)
         )
 
+    def get_max_workers(self) -> int:
+        """
+        Get maximum number of concurrent workers for parallel API requests.
+
+        Returns:
+            int: Maximum concurrent workers. Defaults to 3 if not configured.
+        """
+        return (
+            self.config.get("system", {}).get("concurrency", {}).get("max_workers", 3)
+        )
+
+    def get_circuit_breaker_failure_threshold(self) -> int:
+        """
+        Get circuit breaker failure threshold.
+
+        Returns:
+            int: Number of failures before opening circuit. Defaults to 3.
+        """
+        return (
+            self.config.get("system", {})
+            .get("circuit_breaker", {})
+            .get("failure_threshold", 3)
+        )
+
+    def get_circuit_breaker_recovery_timeout(self) -> int:
+        """
+        Get circuit breaker recovery timeout.
+
+        Returns:
+            int: Seconds before attempting recovery. Defaults to 30.
+        """
+        return (
+            self.config.get("system", {})
+            .get("circuit_breaker", {})
+            .get("recovery_timeout", 30)
+        )
+
+    def get_circuit_breaker_success_threshold(self) -> int:
+        """
+        Get circuit breaker success threshold.
+
+        Returns:
+            int: Successes needed to close circuit from half-open. Defaults to 2.
+        """
+        return (
+            self.config.get("system", {})
+            .get("circuit_breaker", {})
+            .get("success_threshold", 2)
+        )
+
     def get_data_point_warning_threshold(self) -> float:
         """
         Get threshold ratio for data point warning.
