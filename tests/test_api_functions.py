@@ -702,36 +702,30 @@ class TestGetAllRegionalTraffic(unittest.TestCase):
             {"success": True, "total_tb": 3.0, "region_name": "Region 3"},
         ]
 
+        mock_auth = MagicMock()
         result = get_all_regional_traffic(
             "2025-09-24T00:00:00Z",
             "2025-09-24T23:59:59Z",
-            MagicMock(),  # auth
-            mock_config,  # config_loader
+            mock_auth,
+            mock_config,
         )
 
         # Should call get_regional_traffic for each region
+        # Note: Concurrent execution uses kwargs instead of positional args
         self.assertEqual(mock_get_regional.call_count, 3)
-        mock_get_regional.assert_any_call(
-            "ID",
-            "2025-09-24T00:00:00Z",
-            "2025-09-24T23:59:59Z",
-            unittest.mock.ANY,
-            mock_config,
-        )
-        mock_get_regional.assert_any_call(
-            "TW",
-            "2025-09-24T00:00:00Z",
-            "2025-09-24T23:59:59Z",
-            unittest.mock.ANY,
-            mock_config,
-        )
-        mock_get_regional.assert_any_call(
-            "SG",
-            "2025-09-24T00:00:00Z",
-            "2025-09-24T23:59:59Z",
-            unittest.mock.ANY,
-            mock_config,
-        )
+
+        # Verify all regions were called (order may vary due to concurrency)
+        called_countries = [call.args[0] for call in mock_get_regional.call_args_list]
+        self.assertIn("ID", called_countries)
+        self.assertIn("TW", called_countries)
+        self.assertIn("SG", called_countries)
+
+        # Verify kwargs are passed correctly
+        for call in mock_get_regional.call_args_list:
+            self.assertEqual(call.kwargs["start_date"], "2025-09-24T00:00:00Z")
+            self.assertEqual(call.kwargs["end_date"], "2025-09-24T23:59:59Z")
+            self.assertEqual(call.kwargs["auth"], mock_auth)
+            self.assertEqual(call.kwargs["config_loader"], mock_config)
 
         # Verify summary
         self.assertIn("_summary", result)
