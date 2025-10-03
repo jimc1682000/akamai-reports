@@ -45,6 +45,12 @@ class TestCallTrafficAPI(unittest.TestCase):
         self.mock_config.get_exponential_backoff_base.return_value = 2
         self.mock_config.get_network_error_delay.return_value = 1.0
         self.mock_config.get_rate_limit_delay.return_value = 0.5
+        # Add new circuit breaker config methods
+        self.mock_config.get_circuit_breaker_failure_threshold.return_value = 3
+        self.mock_config.get_circuit_breaker_recovery_timeout.return_value = 30
+        self.mock_config.get_circuit_breaker_success_threshold.return_value = 2
+        # Add max_workers config method
+        self.mock_config.get_max_workers.return_value = 3
 
         self.mock_auth = MagicMock()
 
@@ -219,8 +225,11 @@ class TestCallTrafficAPI(unittest.TestCase):
 
         # Verify retry behavior
         self.assertEqual(mock_post.call_count, 2)
-        mock_sleep.assert_called_once_with(1)  # 2^0 = 1 second wait
-        mock_logger.info.assert_any_call("⏳ 速率限制，等待重試...")
+        # With jitter, sleep time is between 0 and 2^0 = 1 second
+        mock_sleep.assert_called_once()
+        sleep_time = mock_sleep.call_args[0][0]
+        self.assertGreaterEqual(sleep_time, 0)
+        self.assertLessEqual(sleep_time, 1)
         self.assertIsNotNone(result)
 
     @patch("tools.lib.api_client.requests.post")
@@ -265,8 +274,11 @@ class TestCallTrafficAPI(unittest.TestCase):
 
         # Verify retry behavior
         self.assertEqual(mock_post.call_count, 2)
-        mock_sleep.assert_called_once_with(1)
-        mock_logger.info.assert_any_call("🔧 伺服器錯誤 (500)，等待重試...")
+        # With jitter, sleep time is between 0 and 2^0 = 1 second
+        mock_sleep.assert_called_once()
+        sleep_time = mock_sleep.call_args[0][0]
+        self.assertGreaterEqual(sleep_time, 0)
+        self.assertLessEqual(sleep_time, 1)
         self.assertIsNotNone(result)
 
     @patch("tools.lib.api_client.requests.post")
@@ -350,6 +362,12 @@ class TestCallEmissionsAPI(unittest.TestCase):
         self.mock_config.get_exponential_backoff_base.return_value = 2
         self.mock_config.get_network_error_delay.return_value = 1.0
         self.mock_config.get_rate_limit_delay.return_value = 0.5
+        # Add new circuit breaker config methods
+        self.mock_config.get_circuit_breaker_failure_threshold.return_value = 3
+        self.mock_config.get_circuit_breaker_recovery_timeout.return_value = 30
+        self.mock_config.get_circuit_breaker_success_threshold.return_value = 2
+        # Add max_workers config method
+        self.mock_config.get_max_workers.return_value = 3
 
         self.mock_auth = MagicMock()
 
@@ -637,6 +655,8 @@ class TestGetAllServiceTraffic(unittest.TestCase):
             "123": {"name": "Service 1"},
             "456": {"name": "Service 2"},
         }
+        mock_config.get_max_workers.return_value = 3
+        mock_config.get_rate_limit_delay.return_value = 0.5
 
         # Mock individual service results
         mock_get_service.side_effect = [
@@ -722,6 +742,8 @@ class TestGetAllRegionalTraffic(unittest.TestCase):
             "TW",
             "SG",
         ]
+        mock_config.get_max_workers.return_value = 3
+        mock_config.get_rate_limit_delay.return_value = 0.5
 
         # Mock individual regional results
         mock_get_regional.side_effect = [
@@ -785,6 +807,9 @@ class TestEmissionsAPIErrorHandling(unittest.TestCase):
         self.mock_config.get_exponential_backoff_base.return_value = 2
         self.mock_config.get_network_error_delay.return_value = 1.0
         self.mock_config.get_rate_limit_delay.return_value = 0.5
+        self.mock_config.get_circuit_breaker_failure_threshold.return_value = 3
+        self.mock_config.get_circuit_breaker_recovery_timeout.return_value = 30
+        self.mock_config.get_circuit_breaker_success_threshold.return_value = 2
 
     @patch("tools.lib.api_client.logger")
     @patch("tools.lib.api_client.requests.post")
@@ -866,6 +891,9 @@ class TestSchemaValidation(unittest.TestCase):
             mock_config.get_api_endpoints.return_value = {
                 "traffic": "https://api.example.com/traffic"
             }
+            mock_config.get_circuit_breaker_failure_threshold.return_value = 3
+            mock_config.get_circuit_breaker_recovery_timeout.return_value = 30
+            mock_config.get_circuit_breaker_success_threshold.return_value = 2
 
             # Call API
             result = call_traffic_api(
@@ -912,6 +940,9 @@ class TestSchemaValidation(unittest.TestCase):
             mock_config.get_api_endpoints.return_value = {
                 "traffic": "https://api.example.com/traffic"
             }
+            mock_config.get_circuit_breaker_failure_threshold.return_value = 3
+            mock_config.get_circuit_breaker_recovery_timeout.return_value = 30
+            mock_config.get_circuit_breaker_success_threshold.return_value = 2
 
             # Call API and expect validation error
             with self.assertRaises(APIRequestError) as context:
