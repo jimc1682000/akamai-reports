@@ -22,6 +22,7 @@ from typing import Any, Dict, Optional
 import requests
 from akamai.edgegrid import EdgeGridAuth, EdgeRc
 
+from tools.lib.cache import ResponseCache
 from tools.lib.config_loader import ConfigLoader
 from tools.lib.exceptions import (
     APIAuthenticationError,
@@ -37,6 +38,9 @@ from tools.lib.logger import logger
 from tools.lib.resilience import CircuitBreaker
 from tools.lib.utils import bytes_to_gb, bytes_to_tb, format_number
 
+
+# Global cache for API responses (disabled by default, enable via env var)
+_response_cache = ResponseCache(cache_dir=".cache", ttl_seconds=7200)  # 2 hour TTL
 
 # Global circuit breakers for each API endpoint
 _traffic_circuit_breaker = CircuitBreaker(
@@ -60,6 +64,21 @@ def get_circuit_breaker_states() -> dict:
         "traffic": _traffic_circuit_breaker.get_state(),
         "emissions": _emissions_circuit_breaker.get_state(),
     }
+
+
+def get_cache_stats() -> dict:
+    """Get cache statistics."""
+    return _response_cache.get_stats()
+
+
+def clear_cache() -> int:
+    """
+    Clear all cached API responses.
+
+    Returns:
+        Number of cache files deleted
+    """
+    return _response_cache.clear()
 
 
 def setup_authentication(config_loader: Optional[ConfigLoader] = None) -> EdgeGridAuth:
@@ -339,11 +358,12 @@ def call_traffic_api(
     payload: Dict[str, Any],
     auth: EdgeGridAuth,
     config_loader: ConfigLoader,
+    use_cache: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """
     Call V2 Traffic API with retry mechanism and circuit breaker protection.
 
-    Simplified wrapper around generic request handler with circuit breaker.
+    Simplified wrapper around generic request handler with circuit breaker and optional caching.
 
     Args:
         start_date (str): Start date in ISO-8601 format
@@ -351,6 +371,7 @@ def call_traffic_api(
         payload (dict): Request payload
         auth: EdgeGrid authentication object
         config_loader: ConfigLoader instance with loaded configuration
+        use_cache (bool): Enable response caching (default: False)
 
     Returns:
         dict: API response data or None if failed
@@ -364,20 +385,49 @@ def call_traffic_api(
         APITimeoutError: If request times out
         APINetworkError: If network error occurs
         CircuitBreakerOpenError: If circuit breaker is open
+
+    Environment Variables:
+        ENABLE_API_CACHE: Set to "1" or "true" to enable caching
     """
+    import os
+
+    # Check environment variable for cache enablement
+    env_cache = os.getenv("ENABLE_API_CACHE", "").lower() in ("1", "true", "yes")
+    enable_cache = use_cache or env_cache
+
     url = config_loader.get_api_endpoints()["traffic"]
     params = {"start": start_date, "end": end_date}
 
-    # Use circuit breaker to protect against cascading failures
-    return _traffic_circuit_breaker.call(
-        _make_api_request_with_retry,
-        url,
-        params,
-        payload,
-        auth,
-        config_loader,
-        "Traffic",
-    )
+    if enable_cache:
+        # Use cache with circuit breaker
+        return _response_cache.cached_call(
+            lambda **kw: _traffic_circuit_breaker.call(
+                _make_api_request_with_retry,
+                kw["url"],
+                kw["params"],
+                kw["payload"],
+                kw["auth"],
+                kw["config_loader"],
+                "Traffic",
+            ),
+            "call_traffic_api",
+            url=url,
+            params=params,
+            payload=payload,
+            auth=auth,
+            config_loader=config_loader,
+        )
+    else:
+        # Direct call with circuit breaker only
+        return _traffic_circuit_breaker.call(
+            _make_api_request_with_retry,
+            url,
+            params,
+            payload,
+            auth,
+            config_loader,
+            "Traffic",
+        )
 
 
 def get_total_edge_traffic(
