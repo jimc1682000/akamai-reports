@@ -16,9 +16,8 @@ from tools.lib.api_client import (
     get_all_regional_traffic,
     get_all_service_traffic,
     get_total_edge_traffic,
-    setup_authentication,
 )
-from tools.lib.config_loader import load_configuration
+from tools.lib.container import ServiceContainer
 from tools.lib.exceptions import (
     AkamaiAPIError,
     APIAuthenticationError,
@@ -34,8 +33,16 @@ from tools.lib.reporters import (
 from tools.lib.time_handler import get_time_range
 
 
-def main() -> int:
-    """Main function to orchestrate the weekly traffic report generation"""
+def main(container: ServiceContainer = None) -> int:
+    """
+    Main function to orchestrate the weekly traffic report generation.
+
+    Args:
+        container: Optional dependency injection container for testing
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
 
     logger.info("🚀 週報流量數據腳本啟動")
     logger.info("=" * 50)
@@ -50,13 +57,17 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        # Load configuration
+        # Initialize service container
+        if container is None:
+            container = ServiceContainer()
+
+        # Get dependencies from container
         logger.info("📋 載入配置檔案...")
-        config_loader = load_configuration()
+        config_loader = container.config_loader
         config_loader.print_config_summary()
 
-        # Initialize authentication
-        auth = setup_authentication(config_loader)
+        # Get authentication from container
+        auth = container.auth
 
         # Get time range
         start_date, end_date = get_time_range(args, config_loader)
