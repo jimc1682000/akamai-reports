@@ -39,6 +39,14 @@ from tools.lib.http import ConcurrentAPIClient
 from tools.lib.logger import logger
 from tools.lib.models import EmissionsAPIResponse, TrafficAPIResponse
 from tools.lib.resilience import CircuitBreaker
+from tools.lib.tracing import (
+    ErrorContext,
+    RequestContext,
+    generate_correlation_id,
+    get_correlation_id,
+    set_correlation_id,
+    set_current_context,
+)
 from tools.lib.utils import bytes_to_gb, bytes_to_tb, format_number
 
 
@@ -118,7 +126,7 @@ def _make_api_request_with_retry(
     api_type: str = "Traffic",
 ) -> Optional[Dict[str, Any]]:
     """
-    Generic API request handler with exponential backoff retry.
+    Generic API request handler with exponential backoff retry and tracing.
 
     This private function handles the common HTTP retry logic for both
     Traffic and Emissions APIs, eliminating code duplication.
@@ -142,12 +150,30 @@ def _make_api_request_with_retry(
         APITimeoutError: If request times out
         APINetworkError: If network error occurs
     """
+    # Setup correlation ID and request context for tracing
+    if not get_correlation_id():
+        set_correlation_id(generate_correlation_id())
+
+    # Create request context
+    req_context = RequestContext(
+        correlation_id=get_correlation_id() or "unknown",
+        api_endpoint=f"{api_type} API: {url}",
+        params={"start": params.get("start"), "end": params.get("end")},
+        metadata={"api_type": api_type, "attempt": 0},
+    )
+    set_current_context(req_context)
+
     max_retries = config_loader.get_max_retries()
 
     for attempt in range(max_retries):
         try:
+            # Update attempt metadata
+            req_context.metadata["attempt"] = attempt + 1
+
+            correlation_id = get_correlation_id()
             logger.info(
-                f"📡 發送 V2 {api_type} API 請求 (嘗試 {attempt + 1}/{max_retries})"
+                f"📡 發送 V2 {api_type} API 請求 (嘗試 {attempt + 1}/{max_retries}) "
+                f"[{correlation_id}]"
             )
 
             response = requests.post(
@@ -158,7 +184,10 @@ def _make_api_request_with_retry(
                 timeout=config_loader.get_request_timeout(),
             )
 
-            logger.info(f"📊 API 回應狀態: {response.status_code}")
+            duration_ms = req_context.get_duration_ms()
+            logger.info(
+                f"📊 API 回應狀態: {response.status_code} (耗時: {duration_ms:.0f}ms)"
+            )
 
             # Delegate to status handler
             result = _handle_response_status(
@@ -169,9 +198,24 @@ def _make_api_request_with_retry(
                 return result
             # Otherwise, continue to next retry attempt
 
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as e:
+            # Capture error context for timeout
+            error_ctx = ErrorContext.from_exception(
+                e, additional_context={"attempt": attempt + 1, "url": url}
+            )
+            logger.debug(f"Timeout error context: {error_ctx.to_dict()}")
             _handle_timeout_retry(attempt, max_retries)
         except requests.exceptions.RequestException as e:
+            # Capture error context for network errors
+            error_ctx = ErrorContext.from_exception(
+                e,
+                additional_context={
+                    "attempt": attempt + 1,
+                    "url": url,
+                    "duration_ms": req_context.get_duration_ms(),
+                },
+            )
+            logger.debug(f"Network error context: {error_ctx.to_dict()}")
             _handle_network_retry(e, attempt, max_retries, config_loader)
 
     return None
