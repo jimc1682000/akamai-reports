@@ -113,10 +113,12 @@ class ConfigLoader:
     def get_target_regions(self) -> List[str]:
         """Get list of target regions to analyze"""
         config = self._ensure_config_loaded()
-        # Default to standard regions if not specified in config
-        return config["reporting"].get(  # type: ignore[no-any-return]
-            "target_regions", ["REGION_CODE_1", "REGION_CODE_2", "REGION_CODE_3"]
-        )
+        # If target_regions is not specified, use all keys from region_mappings
+        if "target_regions" in config["reporting"]:
+            return config["reporting"]["target_regions"]  # type: ignore[no-any-return]
+        else:
+            # Use all region codes from region_mappings
+            return list(config["reporting"]["region_mappings"].keys())
 
     def get_billing_coefficient(self) -> float:
         """Get billing coefficient"""

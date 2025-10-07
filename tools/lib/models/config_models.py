@@ -205,15 +205,20 @@ class Config(BaseModel):
 
     @model_validator(mode="after")
     def validate_service_mappings(self) -> "Config":
-        """Validate that all CP codes have service mappings"""
+        """Validate service mappings and warn about unmapped CP codes"""
+        import warnings
+
         cp_codes = set(self.business.cp_codes)
         mapped_codes = set(self.business.service_mappings.keys())
 
-        # It's OK to have extra mappings, but all CP codes should be mapped
+        # Warn about unmapped CP codes (they will be grouped as "其他服務")
         unmapped = cp_codes - mapped_codes
         if unmapped:
-            raise ValueError(
-                f"CP codes missing service mappings: {', '.join(sorted(unmapped))}"
+            warnings.warn(
+                f"CP codes without service mappings will be grouped as '其他服務': "
+                f"{', '.join(sorted(unmapped))}",
+                UserWarning,
+                stacklevel=2,
             )
 
         return self

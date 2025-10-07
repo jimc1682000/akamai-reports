@@ -52,7 +52,7 @@ Thumbs.db
 .edgerc_*
 
 # 輸出檔案
-weekly_traffic_report_*.json
+traffic_report_*.json
 test_report_*.json
 *.log
 logs/
