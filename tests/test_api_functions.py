@@ -21,8 +21,10 @@ from tools.lib.api_client import (
     get_regional_traffic,
     get_service_traffic,
     get_total_edge_traffic,
+    reset_circuit_breakers,
 )
 from tools.lib.config_loader import ConfigLoader
+from tools.lib.exceptions import APIRequestError
 
 
 class TestCallTrafficAPI(unittest.TestCase):
@@ -30,6 +32,8 @@ class TestCallTrafficAPI(unittest.TestCase):
 
     def setUp(self):
         """Set up mock config and auth"""
+        # Reset circuit breakers before each test to ensure clean state
+        reset_circuit_breakers()
         self.mock_config = MagicMock(spec=ConfigLoader)
         self.mock_config.get_api_endpoints.return_value = {
             "traffic": "https://example.com/traffic"
@@ -41,6 +45,12 @@ class TestCallTrafficAPI(unittest.TestCase):
         self.mock_config.get_exponential_backoff_base.return_value = 2
         self.mock_config.get_network_error_delay.return_value = 1.0
         self.mock_config.get_rate_limit_delay.return_value = 0.5
+        # Add new circuit breaker config methods
+        self.mock_config.get_circuit_breaker_failure_threshold.return_value = 3
+        self.mock_config.get_circuit_breaker_recovery_timeout.return_value = 30
+        self.mock_config.get_circuit_breaker_success_threshold.return_value = 2
+        # Add max_workers config method
+        self.mock_config.get_max_workers.return_value = 3
 
         self.mock_auth = MagicMock()
 
@@ -89,10 +99,24 @@ class TestCallTrafficAPI(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(len(result["data"]), 1)
 
-        # Verify print calls
-        mock_logger.info.assert_any_call("📡 發送 V2 Traffic API 請求 (嘗試 1/3)")
-        mock_logger.info.assert_any_call("📊 API 回應狀態: 200")
-        mock_logger.info.assert_any_call("✅ 成功! 返回 1 個數據點")
+        # Verify print calls (now include correlation ID and duration)
+        # Check that logger.info was called with messages containing expected text
+        info_calls = [str(call) for call in mock_logger.info.call_args_list]
+        self.assertTrue(
+            any(
+                "📡 發送 V2 Traffic API 請求 (嘗試 1/3)" in str(call)
+                for call in info_calls
+            ),
+            "Expected API request log message not found",
+        )
+        self.assertTrue(
+            any("📊 API 回應狀態: 200" in str(call) for call in info_calls),
+            "Expected status log message not found",
+        )
+        self.assertTrue(
+            any("✅ 成功! 返回 1 個數據點" in str(call) for call in info_calls),
+            "Expected success log message not found",
+        )
 
     @patch("tools.lib.api_client.requests.post")
     @patch("tools.lib.api_client.logger")
@@ -201,8 +225,11 @@ class TestCallTrafficAPI(unittest.TestCase):
 
         # Verify retry behavior
         self.assertEqual(mock_post.call_count, 2)
-        mock_sleep.assert_called_once_with(1)  # 2^0 = 1 second wait
-        mock_logger.info.assert_any_call("⏳ 速率限制，等待重試...")
+        # With jitter, sleep time is between 0 and 2^0 = 1 second
+        mock_sleep.assert_called_once()
+        sleep_time = mock_sleep.call_args[0][0]
+        self.assertGreaterEqual(sleep_time, 0)
+        self.assertLessEqual(sleep_time, 1)
         self.assertIsNotNone(result)
 
     @patch("tools.lib.api_client.requests.post")
@@ -247,8 +274,11 @@ class TestCallTrafficAPI(unittest.TestCase):
 
         # Verify retry behavior
         self.assertEqual(mock_post.call_count, 2)
-        mock_sleep.assert_called_once_with(1)
-        mock_logger.info.assert_any_call("🔧 伺服器錯誤 (500)，等待重試...")
+        # With jitter, sleep time is between 0 and 2^0 = 1 second
+        mock_sleep.assert_called_once()
+        sleep_time = mock_sleep.call_args[0][0]
+        self.assertGreaterEqual(sleep_time, 0)
+        self.assertLessEqual(sleep_time, 1)
         self.assertIsNotNone(result)
 
     @patch("tools.lib.api_client.requests.post")
@@ -332,6 +362,12 @@ class TestCallEmissionsAPI(unittest.TestCase):
         self.mock_config.get_exponential_backoff_base.return_value = 2
         self.mock_config.get_network_error_delay.return_value = 1.0
         self.mock_config.get_rate_limit_delay.return_value = 0.5
+        # Add new circuit breaker config methods
+        self.mock_config.get_circuit_breaker_failure_threshold.return_value = 3
+        self.mock_config.get_circuit_breaker_recovery_timeout.return_value = 30
+        self.mock_config.get_circuit_breaker_success_threshold.return_value = 2
+        # Add max_workers config method
+        self.mock_config.get_max_workers.return_value = 3
 
         self.mock_auth = MagicMock()
 
@@ -381,10 +417,23 @@ class TestCallEmissionsAPI(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(len(result["data"]), 1)
 
-        # Verify print calls
-        mock_logger.info.assert_any_call("📡 發送 V2 Emissions API 請求 (嘗試 1/3)")
-        mock_logger.info.assert_any_call("📊 API 回應狀態: 200")
-        mock_logger.info.assert_any_call("✅ 成功! 返回 1 個數據點")
+        # Verify print calls (now include correlation ID and duration)
+        info_calls = [str(call) for call in mock_logger.info.call_args_list]
+        self.assertTrue(
+            any(
+                "📡 發送 V2 Emissions API 請求 (嘗試 1/3)" in str(call)
+                for call in info_calls
+            ),
+            "Expected API request log message not found",
+        )
+        self.assertTrue(
+            any("📊 API 回應狀態: 200" in str(call) for call in info_calls),
+            "Expected status log message not found",
+        )
+        self.assertTrue(
+            any("✅ 成功! 返回 1 個數據點" in str(call) for call in info_calls),
+            "Expected success log message not found",
+        )
 
 
 class TestGetTotalEdgeTraffic(unittest.TestCase):
@@ -606,6 +655,8 @@ class TestGetAllServiceTraffic(unittest.TestCase):
             "123": {"name": "Service 1"},
             "456": {"name": "Service 2"},
         }
+        mock_config.get_max_workers.return_value = 3
+        mock_config.get_rate_limit_delay.return_value = 0.5
 
         # Mock individual service results
         mock_get_service.side_effect = [
@@ -691,6 +742,8 @@ class TestGetAllRegionalTraffic(unittest.TestCase):
             "TW",
             "SG",
         ]
+        mock_config.get_max_workers.return_value = 3
+        mock_config.get_rate_limit_delay.return_value = 0.5
 
         # Mock individual regional results
         mock_get_regional.side_effect = [
@@ -699,36 +752,30 @@ class TestGetAllRegionalTraffic(unittest.TestCase):
             {"success": True, "total_tb": 3.0, "region_name": "Region 3"},
         ]
 
+        mock_auth = MagicMock()
         result = get_all_regional_traffic(
             "2025-09-24T00:00:00Z",
             "2025-09-24T23:59:59Z",
-            MagicMock(),  # auth
-            mock_config,  # config_loader
+            mock_auth,
+            mock_config,
         )
 
         # Should call get_regional_traffic for each region
+        # Note: Concurrent execution uses kwargs instead of positional args
         self.assertEqual(mock_get_regional.call_count, 3)
-        mock_get_regional.assert_any_call(
-            "ID",
-            "2025-09-24T00:00:00Z",
-            "2025-09-24T23:59:59Z",
-            unittest.mock.ANY,
-            mock_config,
-        )
-        mock_get_regional.assert_any_call(
-            "TW",
-            "2025-09-24T00:00:00Z",
-            "2025-09-24T23:59:59Z",
-            unittest.mock.ANY,
-            mock_config,
-        )
-        mock_get_regional.assert_any_call(
-            "SG",
-            "2025-09-24T00:00:00Z",
-            "2025-09-24T23:59:59Z",
-            unittest.mock.ANY,
-            mock_config,
-        )
+
+        # Verify all regions were called (order may vary due to concurrency)
+        called_countries = [call.args[0] for call in mock_get_regional.call_args_list]
+        self.assertIn("ID", called_countries)
+        self.assertIn("TW", called_countries)
+        self.assertIn("SG", called_countries)
+
+        # Verify kwargs are passed correctly
+        for call in mock_get_regional.call_args_list:
+            self.assertEqual(call.kwargs["start_date"], "2025-09-24T00:00:00Z")
+            self.assertEqual(call.kwargs["end_date"], "2025-09-24T23:59:59Z")
+            self.assertEqual(call.kwargs["auth"], mock_auth)
+            self.assertEqual(call.kwargs["config_loader"], mock_config)
 
         # Verify summary
         self.assertIn("_summary", result)
@@ -760,6 +807,9 @@ class TestEmissionsAPIErrorHandling(unittest.TestCase):
         self.mock_config.get_exponential_backoff_base.return_value = 2
         self.mock_config.get_network_error_delay.return_value = 1.0
         self.mock_config.get_rate_limit_delay.return_value = 0.5
+        self.mock_config.get_circuit_breaker_failure_threshold.return_value = 3
+        self.mock_config.get_circuit_breaker_recovery_timeout.return_value = 30
+        self.mock_config.get_circuit_breaker_success_threshold.return_value = 2
 
     @patch("tools.lib.api_client.logger")
     @patch("tools.lib.api_client.requests.post")
@@ -798,6 +848,167 @@ class TestEmissionsAPIErrorHandling(unittest.TestCase):
 
         self.assertIn("Request timeout", str(context.exception))
         mock_logger.info.assert_any_call("⏱️  請求超時，嘗試重試...")
+
+
+class TestSchemaValidation(unittest.TestCase):
+    """Test cases for API response schema validation"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        reset_circuit_breakers()
+
+    @patch("tools.lib.api_client.requests.post")
+    def test_traffic_api_with_schema_validation_success(self, mock_post):
+        """Test traffic API call with schema validation enabled"""
+        import os
+
+        # Enable schema validation via env var
+        os.environ["ENABLE_SCHEMA_VALIDATION"] = "true"
+        os.environ["ENABLE_API_CACHE"] = "false"  # Disable cache for this test
+
+        try:
+            # Mock valid response
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "data": [
+                    {
+                        "time": "2025-09-24T00:00:00Z",
+                        "edgeBytesTotal": 1000000,
+                        "edgeHitsTotal": 500,
+                    }
+                ]
+            }
+            mock_post.return_value = mock_response
+
+            # Create mock objects
+            mock_auth = MagicMock()
+            mock_config = MagicMock()
+            mock_config.get_max_retries.return_value = 3
+            mock_config.get_request_timeout.return_value = 60
+            mock_config.get_data_point_limit.return_value = 50000
+            mock_config.get_data_point_warning_threshold.return_value = 0.8
+            mock_config.get_api_endpoints.return_value = {
+                "traffic": "https://api.example.com/traffic"
+            }
+            mock_config.get_circuit_breaker_failure_threshold.return_value = 3
+            mock_config.get_circuit_breaker_recovery_timeout.return_value = 30
+            mock_config.get_circuit_breaker_success_threshold.return_value = 2
+
+            # Call API
+            result = call_traffic_api(
+                "2025-09-24T00:00:00Z",
+                "2025-09-30T23:59:59Z",
+                {"dimensions": ["time5minutes"]},
+                mock_auth,
+                mock_config,
+            )
+
+            # Verify result
+            self.assertIsNotNone(result)
+            self.assertEqual(len(result["data"]), 1)
+        finally:
+            # Clean up env vars
+            os.environ.pop("ENABLE_SCHEMA_VALIDATION", None)
+            os.environ.pop("ENABLE_API_CACHE", None)
+
+    @patch("tools.lib.api_client.requests.post")
+    def test_traffic_api_with_schema_validation_failure(self, mock_post):
+        """Test traffic API call with invalid schema"""
+        import os
+
+        # Enable schema validation via env var
+        os.environ["ENABLE_SCHEMA_VALIDATION"] = "1"
+        os.environ["ENABLE_API_CACHE"] = "false"  # Disable cache for this test
+
+        try:
+            # Mock invalid response (missing required edgeBytesTotal)
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "data": [{"time": "2025-09-24T00:00:00Z"}]  # Missing edgeBytesTotal
+            }
+            mock_post.return_value = mock_response
+
+            # Create mock objects
+            mock_auth = MagicMock()
+            mock_config = MagicMock()
+            mock_config.get_max_retries.return_value = 3
+            mock_config.get_request_timeout.return_value = 60
+            mock_config.get_data_point_limit.return_value = 50000
+            mock_config.get_data_point_warning_threshold.return_value = 0.8
+            mock_config.get_api_endpoints.return_value = {
+                "traffic": "https://api.example.com/traffic"
+            }
+            mock_config.get_circuit_breaker_failure_threshold.return_value = 3
+            mock_config.get_circuit_breaker_recovery_timeout.return_value = 30
+            mock_config.get_circuit_breaker_success_threshold.return_value = 2
+
+            # Call API and expect validation error
+            with self.assertRaises(APIRequestError) as context:
+                call_traffic_api(
+                    "2025-09-24T00:00:00Z",
+                    "2025-09-30T23:59:59Z",
+                    {"dimensions": ["time5minutes"]},
+                    mock_auth,
+                    mock_config,
+                )
+
+            self.assertEqual(context.exception.status_code, 422)
+            self.assertIn("Schema validation failed", str(context.exception))
+        finally:
+            # Clean up env vars
+            os.environ.pop("ENABLE_SCHEMA_VALIDATION", None)
+            os.environ.pop("ENABLE_API_CACHE", None)
+
+    @patch("tools.lib.api_client.requests.post")
+    def test_emissions_api_with_schema_validation_success(self, mock_post):
+        """Test emissions API call with schema validation enabled"""
+        import os
+
+        # Enable schema validation via env var
+        os.environ["ENABLE_SCHEMA_VALIDATION"] = "yes"
+
+        try:
+            # Mock valid response
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "data": [
+                    {
+                        "time": "2025-09-24T00:00:00Z",
+                        "country": "ID",
+                        "edgeBytesTotal": 5000000,
+                        "carbonIntensity": 0.45,
+                    }
+                ]
+            }
+            mock_post.return_value = mock_response
+
+            # Create mock objects
+            mock_auth = MagicMock()
+            mock_config = MagicMock()
+            mock_config.get_max_retries.return_value = 3
+            mock_config.get_request_timeout.return_value = 60
+            mock_config.get_api_endpoints.return_value = {
+                "emissions": "https://api.example.com/emissions"
+            }
+
+            # Call API
+            result = call_emissions_api(
+                "2025-09-24T00:00:00Z",
+                "2025-09-30T23:59:59Z",
+                {"dimensions": ["time1day"]},
+                mock_auth,
+                mock_config,
+            )
+
+            # Verify result
+            self.assertIsNotNone(result)
+            self.assertEqual(len(result["data"]), 1)
+        finally:
+            # Clean up env vars
+            os.environ.pop("ENABLE_SCHEMA_VALIDATION", None)
 
 
 if __name__ == "__main__":

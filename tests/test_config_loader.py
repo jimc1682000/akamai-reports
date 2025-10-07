@@ -49,7 +49,17 @@ class TestConfigLoader(unittest.TestCase):
                         "name": "Service 1",
                         "unit": "TB",
                         "description": "Test service",
-                    }
+                    },
+                    "456": {
+                        "name": "Service 2",
+                        "unit": "GB",
+                        "description": "Test service 2",
+                    },
+                    "789": {
+                        "name": "Service 3",
+                        "unit": "TB",
+                        "description": "Test service 3",
+                    },
                 },
                 "billing_coefficient": 1.0,
             },
@@ -61,7 +71,20 @@ class TestConfigLoader(unittest.TestCase):
                     "REGION_CODE_3": "地區名稱 3",
                 },
             },
-            "system": {"data_point_limit": 50000},
+            "system": {
+                "data_point_limit": 50000,
+                "concurrency": {
+                    "max_workers": 3,
+                    "rate_limit_delay": 0.1,
+                    "pool_connections": 10,
+                    "pool_maxsize": 20,
+                },
+                "circuit_breaker": {
+                    "failure_threshold": 3,
+                    "recovery_timeout": 30,
+                    "success_threshold": 2,
+                },
+            },
         }
 
         # Create temporary directory for test files
@@ -134,12 +157,14 @@ class TestConfigLoader(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("缺少必要配置區段", str(context.exception))
+        # Pydantic error: Field required
+        self.assertIn("配置驗證失敗", str(context.exception))
+        self.assertIn("Field required", str(context.exception))
 
     def test_validate_config_missing_api_fields(self):
         """Test validation with missing API fields"""
         config = self.valid_config.copy()
-        del config["api"]["timeout"]
+        del config["api"]["endpoints"]  # endpoints is required (no default)
         self._write_config_file(config)
 
         loader = ConfigLoader(self.test_config_file)
@@ -147,8 +172,9 @@ class TestConfigLoader(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("配置區段 'api' 缺少必要欄位", str(context.exception))
-        self.assertIn("timeout", str(context.exception))
+        # Pydantic error: Field required for endpoints
+        self.assertIn("配置驗證失敗", str(context.exception))
+        self.assertIn("endpoints", str(context.exception))
 
     def test_validate_config_invalid_week_definition(self):
         """Test validation with invalid week definition"""
@@ -161,7 +187,8 @@ class TestConfigLoader(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("無效的週期定義", str(context.exception))
+        # Pydantic error: Input should be one of the allowed literals
+        self.assertIn("配置驗證失敗", str(context.exception))
 
     def test_validate_config_custom_week_missing_start_day(self):
         """Test validation with custom week definition but missing start day"""
@@ -175,10 +202,9 @@ class TestConfigLoader(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn(
-            "使用 'custom' 週期定義時必須提供 'custom_start_day' 參數",
-            str(context.exception),
-        )
+        # Pydantic model_validator: custom_start_day must be provided when week_definition is 'custom'
+        self.assertIn("配置驗證失敗", str(context.exception))
+        self.assertIn("custom_start_day", str(context.exception))
 
     def test_validate_config_invalid_custom_start_day(self):
         """Test validation with invalid custom start day"""
@@ -192,7 +218,8 @@ class TestConfigLoader(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("custom_start_day 必須是 0-6 之間的整數", str(context.exception))
+        # Pydantic error: Input should be less than or equal to 6
+        self.assertIn("配置驗證失敗", str(context.exception))
 
     def test_validate_cp_codes_not_list(self):
         """Test validation with CP codes not as list"""
@@ -205,7 +232,9 @@ class TestConfigLoader(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("cp_codes 必須是陣列格式", str(context.exception))
+        # Pydantic error: Input should be a valid list
+        self.assertIn("配置驗證失敗", str(context.exception))
+        self.assertIn("cp_codes", str(context.exception))
 
     def test_validate_empty_cp_codes(self):
         """Test validation with empty CP codes list"""
@@ -218,7 +247,8 @@ class TestConfigLoader(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("cp_codes 陣列不能為空", str(context.exception))
+        # Pydantic error: list should have at least 1 item
+        self.assertIn("配置驗證失敗", str(context.exception))
 
     def test_validate_cp_codes_invalid_type(self):
         """Test validation with non-string CP codes"""
@@ -231,7 +261,9 @@ class TestConfigLoader(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("CP code at index 1 必須是字串格式", str(context.exception))
+        # Pydantic error: Input should be a valid string
+        self.assertIn("配置驗證失敗", str(context.exception))
+        self.assertIn("cp_codes", str(context.exception))
 
     def test_validate_service_mappings_not_dict(self):
         """Test validation with service mappings not as dict"""
@@ -244,7 +276,9 @@ class TestConfigLoader(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("service_mappings 必須是物件格式", str(context.exception))
+        # Pydantic error: Input should be a valid dictionary
+        self.assertIn("配置驗證失敗", str(context.exception))
+        self.assertIn("service_mappings", str(context.exception))
 
     def test_validate_service_mappings_missing_fields(self):
         """Test validation with service mappings missing required fields"""
@@ -259,7 +293,9 @@ class TestConfigLoader(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("service_mappings['123'] 缺少必要欄位", str(context.exception))
+        # Pydantic error: Field required (description)
+        self.assertIn("配置驗證失敗", str(context.exception))
+        self.assertIn("description", str(context.exception))
 
     # Test accessor methods
     def test_get_cp_codes(self):
@@ -330,6 +366,56 @@ class TestConfigLoader(unittest.TestCase):
 
         timeout = loader.get_request_timeout()
         self.assertEqual(timeout, 60)
+
+    def test_get_request_timeout_with_api_specific(self):
+        """Test get_request_timeout with API-specific configuration"""
+        config = self.valid_config.copy()
+        config["api"]["timeouts"] = {"traffic": 60, "emissions": 90}
+        self._write_config_file(config)
+        loader = ConfigLoader(self.test_config_file)
+        loader.load_config()
+
+        # Test API-specific timeouts
+        traffic_timeout = loader.get_request_timeout("traffic")
+        self.assertEqual(traffic_timeout, 60)
+
+        emissions_timeout = loader.get_request_timeout("emissions")
+        self.assertEqual(emissions_timeout, 90)
+
+        # Test default timeout when no API type specified
+        default_timeout = loader.get_request_timeout()
+        self.assertEqual(default_timeout, 60)
+
+    def test_get_request_timeout_fallback_to_default(self):
+        """Test get_request_timeout falls back to default when API type not configured"""
+        config = self.valid_config.copy()
+        # Only configure timeout for traffic, not emissions
+        config["api"]["timeouts"] = {"traffic": 45}
+        self._write_config_file(config)
+        loader = ConfigLoader(self.test_config_file)
+        loader.load_config()
+
+        # Traffic should use specific timeout
+        traffic_timeout = loader.get_request_timeout("traffic")
+        self.assertEqual(traffic_timeout, 45)
+
+        # Emissions should fall back to default
+        emissions_timeout = loader.get_request_timeout("emissions")
+        self.assertEqual(emissions_timeout, 60)
+
+    def test_get_request_timeout_case_insensitive(self):
+        """Test get_request_timeout is case-insensitive"""
+        config = self.valid_config.copy()
+        config["api"]["timeouts"] = {"traffic": 60, "emissions": 90}
+        self._write_config_file(config)
+        loader = ConfigLoader(self.test_config_file)
+        loader.load_config()
+
+        # Test case variations
+        self.assertEqual(loader.get_request_timeout("Traffic"), 60)
+        self.assertEqual(loader.get_request_timeout("TRAFFIC"), 60)
+        self.assertEqual(loader.get_request_timeout("Emissions"), 90)
+        self.assertEqual(loader.get_request_timeout("EMISSIONS"), 90)
 
     def test_get_data_point_limit(self):
         """Test get_data_point_limit method"""
@@ -489,7 +575,10 @@ class TestLoadConfigurationFunction(unittest.TestCase):
 
         self.valid_config = {
             "api": {
-                "endpoints": {"traffic": "test", "emissions": "test"},
+                "endpoints": {
+                    "traffic": "https://example.com/traffic",
+                    "emissions": "https://example.com/emissions",
+                },
                 "timeout": 60,
                 "max_retries": 3,
             },
@@ -504,7 +593,20 @@ class TestLoadConfigurationFunction(unittest.TestCase):
                 "week_definition": "sunday_to_saturday",
                 "region_mappings": {"REGION_CODE_2": "地區名稱 2"},
             },
-            "system": {"data_point_limit": 1000},
+            "system": {
+                "data_point_limit": 1000,
+                "concurrency": {
+                    "max_workers": 3,
+                    "rate_limit_delay": 0.1,
+                    "pool_connections": 10,
+                    "pool_maxsize": 20,
+                },
+                "circuit_breaker": {
+                    "failure_threshold": 3,
+                    "recovery_timeout": 30,
+                    "success_threshold": 2,
+                },
+            },
         }
 
     def tearDown(self):
@@ -567,7 +669,8 @@ class TestConfigValidationEdgeCases(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("必須是物件格式", str(context.exception))
+        # Pydantic error: Input should be a valid dictionary
+        self.assertIn("配置驗證失敗", str(context.exception))
 
     def test_validate_service_mappings_missing_field(self):
         """Test validation with missing required field in service mapping"""
@@ -595,22 +698,51 @@ class TestConfigValidationEdgeCases(unittest.TestCase):
         with self.assertRaises(ConfigurationError) as context:
             loader.load_config()
 
-        self.assertIn("缺少必要欄位: description", str(context.exception))
+        # Pydantic error: Field required (description)
+        self.assertIn("配置驗證失敗", str(context.exception))
+        self.assertIn("description", str(context.exception))
 
     def test_get_target_regions_default(self):
         """Test get_target_regions returns default when not configured"""
+        # Use valid_config as base but ensure target_regions is not set
         config_data = {
-            "api": {"endpoints": {}, "timeout": 60, "max_retries": 3},
+            "api": {
+                "endpoints": {
+                    "traffic": "https://example.com/traffic",
+                    "emissions": "https://example.com/emissions",
+                },
+                "timeout": 60,
+                "max_retries": 3,
+            },
             "business": {
                 "cp_codes": ["123"],
-                "service_mappings": {},
+                "service_mappings": {
+                    "123": {
+                        "name": "Service 1",
+                        "unit": "TB",
+                        "description": "Test service",
+                    }
+                },
                 "billing_coefficient": 1.0,
             },
             "reporting": {
                 "week_definition": "sunday_to_saturday",
-                "region_mappings": {},
+                "region_mappings": {"REGION_CODE_1": "Region 1"},
             },
-            "system": {"data_point_limit": 5000},
+            "system": {
+                "data_point_limit": 5000,
+                "concurrency": {
+                    "max_workers": 3,
+                    "rate_limit_delay": 0.1,
+                    "pool_connections": 10,
+                    "pool_maxsize": 20,
+                },
+                "circuit_breaker": {
+                    "failure_threshold": 3,
+                    "recovery_timeout": 30,
+                    "success_threshold": 2,
+                },
+            },
         }
 
         with open(self.config_file, "w") as f:

@@ -16,12 +16,16 @@ Functions:
     - get_all_regional_traffic(): Query all regions
 """
 
+import os
+import random
 import time
 from typing import Any, Dict, Optional
 
 import requests
-from akamai.edgegrid import EdgeGridAuth, EdgeRc
+from akamai.edgegrid import EdgeGridAuth
+from pydantic import ValidationError
 
+from tools.lib.cache import ResponseCache
 from tools.lib.config_loader import ConfigLoader
 from tools.lib.exceptions import (
     APIAuthenticationError,
@@ -32,17 +36,153 @@ from tools.lib.exceptions import (
     APIServerError,
     APITimeoutError,
 )
+from tools.lib.http import ConcurrentAPIClient
 from tools.lib.logger import logger
+from tools.lib.models import EmissionsAPIResponse, TrafficAPIResponse
+from tools.lib.resilience import CircuitBreaker
+from tools.lib.tracing import (
+    ErrorContext,
+    RequestContext,
+    generate_correlation_id,
+    get_correlation_id,
+    set_correlation_id,
+    set_current_context,
+)
 from tools.lib.utils import bytes_to_gb, bytes_to_tb, format_number
+
+
+# Global cache for API responses (disabled by default, enable via env var)
+_response_cache = ResponseCache(cache_dir=".cache", ttl_seconds=7200)  # 2 hour TTL
+
+# Global circuit breakers for each API endpoint (initialized with defaults)
+_traffic_circuit_breaker: Optional[CircuitBreaker] = None
+_emissions_circuit_breaker: Optional[CircuitBreaker] = None
+
+
+def _get_traffic_circuit_breaker(config_loader: ConfigLoader) -> CircuitBreaker:
+    """
+    Get or create Traffic API circuit breaker with config-based settings.
+
+    Args:
+        config_loader: Configuration loader instance
+
+    Returns:
+        CircuitBreaker instance for Traffic API
+    """
+    global _traffic_circuit_breaker
+    if _traffic_circuit_breaker is None:
+        _traffic_circuit_breaker = CircuitBreaker(
+            failure_threshold=config_loader.get_circuit_breaker_failure_threshold(),
+            recovery_timeout=config_loader.get_circuit_breaker_recovery_timeout(),
+            success_threshold=config_loader.get_circuit_breaker_success_threshold(),
+            name="Traffic API",
+        )
+    return _traffic_circuit_breaker
+
+
+def _get_emissions_circuit_breaker(config_loader: ConfigLoader) -> CircuitBreaker:
+    """
+    Get or create Emissions API circuit breaker with config-based settings.
+
+    Args:
+        config_loader: Configuration loader instance
+
+    Returns:
+        CircuitBreaker instance for Emissions API
+    """
+    global _emissions_circuit_breaker
+    if _emissions_circuit_breaker is None:
+        _emissions_circuit_breaker = CircuitBreaker(
+            failure_threshold=config_loader.get_circuit_breaker_failure_threshold(),
+            recovery_timeout=config_loader.get_circuit_breaker_recovery_timeout(),
+            success_threshold=config_loader.get_circuit_breaker_success_threshold(),
+            name="Emissions API",
+        )
+    return _emissions_circuit_breaker
+
+
+def reset_circuit_breakers():
+    """Reset all circuit breakers to CLOSED state. Useful for testing."""
+    global _traffic_circuit_breaker, _emissions_circuit_breaker
+    if _traffic_circuit_breaker:
+        _traffic_circuit_breaker.reset()
+    if _emissions_circuit_breaker:
+        _emissions_circuit_breaker.reset()
+    _traffic_circuit_breaker = None
+    _emissions_circuit_breaker = None
+
+
+def _calculate_backoff_with_jitter(
+    attempt: int, base: int = 2, max_delay: int = 60
+) -> float:
+    """
+    Calculate exponential backoff delay with full jitter.
+
+    Prevents thundering herd problem by adding randomization to retry delays.
+    Uses "full jitter" strategy as recommended by AWS Architecture Blog.
+
+    Args:
+        attempt: Current retry attempt number (0-indexed)
+        base: Exponential backoff base (default: 2)
+        max_delay: Maximum delay in seconds (default: 60)
+
+    Returns:
+        Delay in seconds with jitter applied
+
+    Examples:
+        >>> delay = _calculate_backoff_with_jitter(0, base=2)
+        >>> 0 <= delay <= 1  # First attempt: 0 to 2^0 seconds
+        True
+        >>> delay = _calculate_backoff_with_jitter(3, base=2, max_delay=10)
+        >>> 0 <= delay <= 8  # Fourth attempt: 0 to min(2^3, 10) seconds
+        True
+    """
+    # Calculate exponential delay capped at max_delay
+    exp_delay = min(base**attempt, max_delay)
+
+    # Apply full jitter: random between 0 and exp_delay
+    return random.uniform(0, exp_delay)
+
+
+def get_circuit_breaker_states() -> dict:
+    """Get current state of all circuit breakers."""
+    return {
+        "traffic": _traffic_circuit_breaker.get_state()
+        if _traffic_circuit_breaker
+        else "NOT_INITIALIZED",
+        "emissions": _emissions_circuit_breaker.get_state()
+        if _emissions_circuit_breaker
+        else "NOT_INITIALIZED",
+    }
+
+
+def get_cache_stats() -> dict:
+    """Get cache statistics."""
+    return _response_cache.get_stats()
+
+
+def clear_cache() -> int:
+    """
+    Clear all cached API responses.
+
+    Returns:
+        Number of cache files deleted
+    """
+    return _response_cache.clear()
 
 
 def setup_authentication(config_loader: Optional[ConfigLoader] = None) -> EdgeGridAuth:
     """
-    Initialize Akamai EdgeGrid authentication.
+    Initialize Akamai EdgeGrid authentication using SecretManager.
+
+    Supports multiple authentication sources:
+    - .edgerc file (default)
+    - Environment variables
+    - AWS Secrets Manager (future)
 
     Args:
-        config_loader: Optional ConfigLoader instance to get edgerc section name.
-                      If not provided, defaults to "default" section.
+        config_loader: Optional ConfigLoader instance to get auth configuration.
+                      If not provided, defaults to .edgerc with "default" section.
 
     Returns:
         EdgeGridAuth: Configured authentication object
@@ -51,11 +191,43 @@ def setup_authentication(config_loader: Optional[ConfigLoader] = None) -> EdgeGr
         Exception: If authentication setup fails
     """
     try:
-        edgerc = EdgeRc("~/.edgerc")
-        section = config_loader.get_edgerc_section() if config_loader else "default"
-        auth = EdgeGridAuth.from_edgerc(edgerc, section)
-        logger.info("✅ 認證設定成功")
+        from tools.lib.secrets import SecretManager
+
+        # Get auth configuration from config_loader
+        if config_loader:
+            auth_source = config_loader.get_auth_source()
+            edgerc_path = config_loader.get_edgerc_path()
+            edgerc_section = config_loader.get_edgerc_section()
+        else:
+            # Defaults when no config_loader
+            auth_source = "edgerc"
+            edgerc_path = None
+            edgerc_section = "default"
+
+        # Initialize SecretManager
+        secret_manager = SecretManager(
+            auth_source=auth_source,
+            edgerc_path=edgerc_path,
+            edgerc_section=edgerc_section,
+        )
+
+        # Get credentials
+        credentials = secret_manager.get_akamai_credentials()
+
+        # Validate credentials
+        if not secret_manager.validate_credentials(credentials):
+            raise ValueError("Invalid credentials: missing required fields")
+
+        # Create EdgeGridAuth from credentials
+        auth = EdgeGridAuth(
+            client_token=credentials.client_token,
+            client_secret=credentials.client_secret,
+            access_token=credentials.access_token,
+        )
+
+        logger.info(f"✅ 認證設定成功 (來源: {auth_source})")
         return auth
+
     except Exception as e:
         logger.error(f"❌ 認證設定失敗: {e}")
         raise
@@ -70,7 +242,7 @@ def _make_api_request_with_retry(
     api_type: str = "Traffic",
 ) -> Optional[Dict[str, Any]]:
     """
-    Generic API request handler with exponential backoff retry.
+    Generic API request handler with exponential backoff retry and tracing.
 
     This private function handles the common HTTP retry logic for both
     Traffic and Emissions APIs, eliminating code duplication.
@@ -94,12 +266,30 @@ def _make_api_request_with_retry(
         APITimeoutError: If request times out
         APINetworkError: If network error occurs
     """
+    # Setup correlation ID and request context for tracing
+    if not get_correlation_id():
+        set_correlation_id(generate_correlation_id())
+
+    # Create request context
+    req_context = RequestContext(
+        correlation_id=get_correlation_id() or "unknown",
+        api_endpoint=f"{api_type} API: {url}",
+        params={"start": params.get("start"), "end": params.get("end")},
+        metadata={"api_type": api_type, "attempt": 0},
+    )
+    set_current_context(req_context)
+
     max_retries = config_loader.get_max_retries()
 
     for attempt in range(max_retries):
         try:
+            # Update attempt metadata
+            req_context.metadata["attempt"] = attempt + 1
+
+            correlation_id = get_correlation_id()
             logger.info(
-                f"📡 發送 V2 {api_type} API 請求 (嘗試 {attempt + 1}/{max_retries})"
+                f"📡 發送 V2 {api_type} API 請求 (嘗試 {attempt + 1}/{max_retries}) "
+                f"[{correlation_id}]"
             )
 
             response = requests.post(
@@ -107,10 +297,13 @@ def _make_api_request_with_retry(
                 params=params,
                 json=payload,
                 auth=auth,
-                timeout=config_loader.get_request_timeout(),
+                timeout=config_loader.get_request_timeout(api_type),
             )
 
-            logger.info(f"📊 API 回應狀態: {response.status_code}")
+            duration_ms = req_context.get_duration_ms()
+            logger.info(
+                f"📊 API 回應狀態: {response.status_code} (耗時: {duration_ms:.0f}ms)"
+            )
 
             # Delegate to status handler
             result = _handle_response_status(
@@ -121,9 +314,24 @@ def _make_api_request_with_retry(
                 return result
             # Otherwise, continue to next retry attempt
 
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as e:
+            # Capture error context for timeout
+            error_ctx = ErrorContext.from_exception(
+                e, additional_context={"attempt": attempt + 1, "url": url}
+            )
+            logger.debug(f"Timeout error context: {error_ctx.to_dict()}")
             _handle_timeout_retry(attempt, max_retries)
         except requests.exceptions.RequestException as e:
+            # Capture error context for network errors
+            error_ctx = ErrorContext.from_exception(
+                e,
+                additional_context={
+                    "attempt": attempt + 1,
+                    "url": url,
+                    "duration_ms": req_context.get_duration_ms(),
+                },
+            )
+            logger.debug(f"Network error context: {error_ctx.to_dict()}")
             _handle_network_retry(e, attempt, max_retries, config_loader)
 
     return None
@@ -167,8 +375,10 @@ def _handle_response_status(
         raise APIAuthorizationError("Authorization failed (403)")
     elif status == 429:
         _handle_rate_limit(attempt, max_retries, config_loader)
+        return None  # Will retry
     elif status >= 500:
         _handle_server_error(status, attempt, max_retries, config_loader)
+        return None  # Will retry
     else:
         logger.error(f"❌ 未預期的狀態碼: {status}")
         raise APIRequestError(status, f"Unexpected status code: {status}")
@@ -178,7 +388,7 @@ def _handle_success_response(
     response: requests.Response, config_loader: ConfigLoader, api_type: str
 ) -> Dict[str, Any]:
     """
-    Handle successful API response (200 OK).
+    Handle successful API response (200 OK) with optional schema validation.
 
     Args:
         response: HTTP response object
@@ -187,6 +397,9 @@ def _handle_success_response(
 
     Returns:
         dict: Parsed JSON response data
+
+    Raises:
+        APIRequestError: If schema validation fails
     """
     data = response.json()
     data_points = len(data.get("data", []))
@@ -196,7 +409,40 @@ def _handle_success_response(
     if api_type == "Traffic":
         _check_data_point_limit(data_points, config_loader)
 
-    return data
+    # Optional schema validation (disabled by default for backward compatibility)
+    env_validate = os.getenv("ENABLE_SCHEMA_VALIDATION", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if env_validate:
+        _validate_response_schema(data, api_type)
+
+    return data  # type: ignore[no-any-return]
+
+
+def _validate_response_schema(data: Dict[str, Any], api_type: str) -> None:
+    """
+    Validate API response against Pydantic schema.
+
+    Args:
+        data: API response data
+        api_type: API type ("Traffic" or "Emissions")
+
+    Raises:
+        APIRequestError: If validation fails
+    """
+    try:
+        if api_type == "Traffic":
+            TrafficAPIResponse(**data)
+            logger.debug(f"✅ Schema validation passed for {api_type} API")
+        elif api_type == "Emissions":
+            EmissionsAPIResponse(**data)
+            logger.debug(f"✅ Schema validation passed for {api_type} API")
+    except ValidationError as e:
+        error_msg = f"Schema validation failed for {api_type} API: {e}"
+        logger.error(f"❌ {error_msg}")
+        raise APIRequestError(422, error_msg) from e
 
 
 def _check_data_point_limit(data_points: int, config_loader: ConfigLoader) -> None:
@@ -218,7 +464,7 @@ def _handle_rate_limit(
     attempt: int, max_retries: int, config_loader: ConfigLoader
 ) -> None:
     """
-    Handle rate limit error (429) with retry.
+    Handle rate limit error (429) with exponential backoff and jitter.
 
     Args:
         attempt (int): Current retry attempt
@@ -228,11 +474,11 @@ def _handle_rate_limit(
     Raises:
         APIRateLimitError: If max retries exceeded
     """
-    logger.info("⏳ 速率限制，等待重試...")
-
     if attempt < max_retries - 1:
         backoff_base = config_loader.get_exponential_backoff_base()
-        time.sleep(backoff_base**attempt)
+        delay = _calculate_backoff_with_jitter(attempt, base=backoff_base)
+        logger.info(f"⏳ 速率限制，等待 {delay:.2f}秒後重試...")
+        time.sleep(delay)
         # Will retry in next iteration
     else:
         raise APIRateLimitError()
@@ -242,7 +488,7 @@ def _handle_server_error(
     status_code: int, attempt: int, max_retries: int, config_loader: ConfigLoader
 ) -> None:
     """
-    Handle server error (500+) with retry.
+    Handle server error (500+) with exponential backoff and jitter.
 
     Args:
         status_code (int): HTTP status code
@@ -253,11 +499,11 @@ def _handle_server_error(
     Raises:
         APIServerError: If max retries exceeded
     """
-    logger.info(f"🔧 伺服器錯誤 ({status_code})，等待重試...")
-
     if attempt < max_retries - 1:
         backoff_base = config_loader.get_exponential_backoff_base()
-        time.sleep(backoff_base**attempt)
+        delay = _calculate_backoff_with_jitter(attempt, base=backoff_base)
+        logger.info(f"🔧 伺服器錯誤 ({status_code})，等待 {delay:.2f}秒後重試...")
+        time.sleep(delay)
         # Will retry in next iteration
     else:
         raise APIServerError(status_code)
@@ -313,11 +559,12 @@ def call_traffic_api(
     payload: Dict[str, Any],
     auth: EdgeGridAuth,
     config_loader: ConfigLoader,
+    use_cache: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """
-    Call V2 Traffic API with retry mechanism.
+    Call V2 Traffic API with retry mechanism and circuit breaker protection.
 
-    Simplified wrapper around generic request handler.
+    Simplified wrapper around generic request handler with circuit breaker and optional caching.
 
     Args:
         start_date (str): Start date in ISO-8601 format
@@ -325,6 +572,7 @@ def call_traffic_api(
         payload (dict): Request payload
         auth: EdgeGrid authentication object
         config_loader: ConfigLoader instance with loaded configuration
+        use_cache (bool): Enable response caching (default: False)
 
     Returns:
         dict: API response data or None if failed
@@ -337,12 +585,51 @@ def call_traffic_api(
         APIServerError: If server error occurs (500+)
         APITimeoutError: If request times out
         APINetworkError: If network error occurs
+        CircuitBreakerOpenError: If circuit breaker is open
+
+    Environment Variables:
+        ENABLE_API_CACHE: Set to "1" or "true" to enable caching
     """
+    import os
+
+    # Check environment variable for cache enablement
+    env_cache = os.getenv("ENABLE_API_CACHE", "").lower() in ("1", "true", "yes")
+    enable_cache = use_cache or env_cache
+
     url = config_loader.get_api_endpoints()["traffic"]
     params = {"start": start_date, "end": end_date}
-    return _make_api_request_with_retry(
-        url, params, payload, auth, config_loader, "Traffic"
-    )
+    circuit_breaker = _get_traffic_circuit_breaker(config_loader)
+
+    if enable_cache:
+        # Use cache with circuit breaker
+        return _response_cache.cached_call(  # type: ignore[no-any-return]
+            lambda **kw: circuit_breaker.call(
+                _make_api_request_with_retry,
+                kw["url"],
+                kw["params"],
+                kw["payload"],
+                kw["auth"],
+                kw["config_loader"],
+                "Traffic",
+            ),
+            "call_traffic_api",
+            url=url,
+            params=params,
+            payload=payload,
+            auth=auth,
+            config_loader=config_loader,
+        )
+    else:
+        # Direct call with circuit breaker only
+        return circuit_breaker.call(  # type: ignore[no-any-return]
+            _make_api_request_with_retry,
+            url,
+            params,
+            payload,
+            auth,
+            config_loader,
+            "Traffic",
+        )
 
 
 def get_total_edge_traffic(
@@ -480,16 +767,23 @@ def get_service_traffic(
 
 
 def get_all_service_traffic(
-    start_date: str, end_date: str, auth: EdgeGridAuth, config_loader: ConfigLoader
+    start_date: str,
+    end_date: str,
+    auth: EdgeGridAuth,
+    config_loader: ConfigLoader,
+    use_concurrent: bool = True,
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Get traffic for all predefined services
+    Get traffic for all predefined services.
+
+    Can execute requests sequentially or concurrently based on use_concurrent flag.
 
     Args:
         start_date (str): Start date in ISO-8601 format
         end_date (str): End date in ISO-8601 format
         auth: EdgeGrid authentication object
         config_loader: ConfigLoader instance with loaded configuration
+        use_concurrent (bool): Use concurrent execution (default: True)
 
     Returns:
         dict: Contains traffic data for all services
@@ -497,16 +791,46 @@ def get_all_service_traffic(
     service_mappings = config_loader.get_service_mappings()
     logger.info("\n🔍 查詢所有個別服務流量")
 
-    results = {}
+    cp_codes = list(service_mappings.keys())
 
-    for cp_code in service_mappings.keys():
-        result = get_service_traffic(cp_code, start_date, end_date, auth, config_loader)
-        results[cp_code] = result
+    if not cp_codes:
+        logger.warning("⚠️  No services configured")
+        return {}
 
-        # Add small delay between requests to be nice to the API
-        time.sleep(config_loader.get_rate_limit_delay())
+    if use_concurrent and len(cp_codes) > 1:
+        # Concurrent execution for better performance
+        max_workers = config_loader.get_max_workers()
+        client = ConcurrentAPIClient(
+            max_workers=min(max_workers, len(cp_codes)),
+            rate_limit_delay=config_loader.get_rate_limit_delay(),
+            pool_connections=config_loader.get_pool_connections(),
+            pool_maxsize=config_loader.get_pool_maxsize(),
+        )
 
-    return results
+        results = client.execute_batch(
+            get_service_traffic,
+            cp_codes,
+            start_date=start_date,
+            end_date=end_date,
+            auth=auth,
+            config_loader=config_loader,
+        )
+
+        client.shutdown()
+        return results
+    else:
+        # Sequential execution (legacy behavior)
+        results = {}
+        for cp_code in cp_codes:
+            result = get_service_traffic(
+                cp_code, start_date, end_date, auth, config_loader
+            )
+            results[cp_code] = result
+
+            # Add small delay between requests to be nice to the API
+            time.sleep(config_loader.get_rate_limit_delay())
+
+        return results
 
 
 def call_emissions_api(
@@ -517,9 +841,9 @@ def call_emissions_api(
     config_loader: ConfigLoader,
 ) -> Optional[Dict[str, Any]]:
     """
-    Call V2 Emissions API with retry mechanism.
+    Call V2 Emissions API with retry mechanism and circuit breaker protection.
 
-    Simplified wrapper around generic request handler.
+    Simplified wrapper around generic request handler with circuit breaker.
 
     Args:
         start_date (str): Start date in ISO-8601 format
@@ -539,11 +863,21 @@ def call_emissions_api(
         APIServerError: If server error occurs (500+)
         APITimeoutError: If request times out
         APINetworkError: If network error occurs
+        CircuitBreakerOpenError: If circuit breaker is open
     """
     url = config_loader.get_api_endpoints()["emissions"]
     params = {"start": start_date, "end": end_date}
-    return _make_api_request_with_retry(
-        url, params, payload, auth, config_loader, "Emissions"
+    circuit_breaker = _get_emissions_circuit_breaker(config_loader)
+
+    # Use circuit breaker to protect against cascading failures
+    return circuit_breaker.call(  # type: ignore[no-any-return]
+        _make_api_request_with_retry,
+        url,
+        params,
+        payload,
+        auth,
+        config_loader,
+        "Emissions",
     )
 
 
@@ -617,16 +951,23 @@ def get_regional_traffic(
 
 
 def get_all_regional_traffic(
-    start_date: str, end_date: str, auth: EdgeGridAuth, config_loader: ConfigLoader
+    start_date: str,
+    end_date: str,
+    auth: EdgeGridAuth,
+    config_loader: ConfigLoader,
+    use_concurrent: bool = True,
 ) -> Dict[str, Any]:
     """
-    Get edge traffic for all target regions (ID, TW, SG)
+    Get edge traffic for all target regions (ID, TW, SG).
+
+    Can execute requests sequentially or concurrently based on use_concurrent flag.
 
     Args:
         start_date (str): Start date in ISO-8601 format
         end_date (str): End date in ISO-8601 format
         auth: EdgeGrid authentication object
         config_loader: ConfigLoader instance with loaded configuration
+        use_concurrent (bool): Use concurrent execution (default: True)
 
     Returns:
         dict: Contains traffic data for all regions
@@ -634,29 +975,55 @@ def get_all_regional_traffic(
     logger.info("\n🔍 查詢所有地區 Edge 流量")
 
     target_regions = config_loader.get_target_regions()
-    results = {}
     total_regional_traffic = 0
     successful_queries = 0
 
-    for country_code in target_regions:
-        result = get_regional_traffic(
-            country_code, start_date, end_date, auth, config_loader
+    if use_concurrent and len(target_regions) > 1:
+        # Concurrent execution for better performance
+        max_workers = config_loader.get_max_workers()
+        client = ConcurrentAPIClient(
+            max_workers=min(max_workers, len(target_regions)),
+            rate_limit_delay=config_loader.get_rate_limit_delay(),
+            pool_connections=config_loader.get_pool_connections(),
+            pool_maxsize=config_loader.get_pool_maxsize(),
         )
-        results[country_code] = result
 
+        results = client.execute_batch(
+            get_regional_traffic,
+            target_regions,
+            start_date=start_date,
+            end_date=end_date,
+            auth=auth,
+            config_loader=config_loader,
+        )
+
+        client.shutdown()
+    else:
+        # Sequential execution (legacy behavior)
+        results = {}
+        for country_code in target_regions:
+            result = get_regional_traffic(
+                country_code, start_date, end_date, auth, config_loader
+            )
+            results[country_code] = result
+
+            # Add delay between requests
+            time.sleep(config_loader.get_rate_limit_delay())
+
+    # Calculate summary
+    for _country_code, result in results.items():
         if result.get("success"):
             total_regional_traffic += result["total_tb"]
             successful_queries += 1
-
-        # Add delay between requests
-        time.sleep(config_loader.get_rate_limit_delay())
 
     # Add summary information
     results["_summary"] = {
         "total_regions": len(target_regions),
         "successful_queries": successful_queries,
         "total_regional_traffic_tb": total_regional_traffic,
-        "success_rate": (successful_queries / len(target_regions)) * 100,
+        "success_rate": (
+            (successful_queries / len(target_regions)) * 100 if target_regions else 0
+        ),
     }
 
     logger.info(f"\n📊 地區流量總計: {format_number(total_regional_traffic)} TB")
