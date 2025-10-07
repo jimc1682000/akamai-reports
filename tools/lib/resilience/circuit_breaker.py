@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable, Optional
 
+from tools.lib.exceptions import CircuitBreakerOpenError
 from tools.lib.logger import logger
 
 
@@ -19,12 +20,6 @@ class CircuitState(Enum):
     CLOSED = "closed"  # Normal operation
     OPEN = "open"  # Circuit tripped, fail fast
     HALF_OPEN = "half_open"  # Testing if service recovered
-
-
-class CircuitBreakerOpenError(Exception):
-    """Exception raised when circuit breaker is open"""
-
-    pass
 
 
 class CircuitBreaker:
@@ -88,7 +83,8 @@ class CircuitBreaker:
                     time_remaining = self._time_until_retry()
                     raise CircuitBreakerOpenError(
                         f"Circuit breaker [{self.name}] is OPEN, "
-                        f"retry in {time_remaining:.0f}s"
+                        f"retry in {time_remaining:.0f}s",
+                        time_until_retry=time_remaining,
                     )
 
         try:
