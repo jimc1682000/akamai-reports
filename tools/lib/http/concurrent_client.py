@@ -3,31 +3,63 @@ Concurrent API Client Implementation
 
 This module provides concurrent API request execution with rate limiting
 and controlled parallelism to improve performance while respecting API limits.
+Includes connection pooling for efficient network resource usage.
 """
 
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List
 
+import requests
+from requests.adapters import HTTPAdapter
+
 from tools.lib.logger import logger
 
 
 class ConcurrentAPIClient:
     """
-    Concurrent API client with rate limiting.
+    Concurrent API client with connection pooling and rate limiting.
 
     Executes multiple API requests concurrently using thread pool
     while controlling the rate of requests to respect API limits.
+    Uses requests.Session with connection pooling for efficient network usage.
 
     Args:
         max_workers: Maximum number of concurrent requests (default: 5)
         rate_limit_delay: Delay between request submissions in seconds (default: 0.1)
+        pool_connections: Number of connection pools to cache (default: 10)
+        pool_maxsize: Maximum number of connections to save in pool (default: 20)
     """
 
-    def __init__(self, max_workers: int = 5, rate_limit_delay: float = 0.1):
+    def __init__(
+        self,
+        max_workers: int = 5,
+        rate_limit_delay: float = 0.1,
+        pool_connections: int = 10,
+        pool_maxsize: int = 20,
+    ):
         self.max_workers = max_workers
         self.rate_limit_delay = rate_limit_delay
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
+
+        # Create session with connection pooling
+        self.session = requests.Session()
+
+        # Configure HTTPAdapter with connection pooling
+        adapter = HTTPAdapter(
+            pool_connections=pool_connections,
+            pool_maxsize=pool_maxsize,
+            max_retries=0,  # Retries handled by api_client layer
+        )
+
+        # Mount adapter for both HTTP and HTTPS
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+
+        logger.debug(
+            f"Connection pool initialized: {pool_connections} pools, "
+            f"max {pool_maxsize} connections per pool"
+        )
 
     def execute_batch(
         self, func: Callable, items: List[Any], **common_kwargs
@@ -81,9 +113,28 @@ class ConcurrentAPIClient:
 
     def shutdown(self, wait: bool = True):
         """
-        Shutdown the thread pool executor.
+        Shutdown the thread pool executor and close session.
 
         Args:
             wait: If True, wait for all threads to complete (default: True)
         """
         self.executor.shutdown(wait=wait)
+        self.session.close()
+        logger.debug("Connection pool and thread executor shut down")
+
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - automatically cleanup"""
+        self.shutdown()
+
+    def get_session(self) -> requests.Session:
+        """
+        Get the underlying requests session for direct use.
+
+        Returns:
+            requests.Session with connection pooling configured
+        """
+        return self.session
