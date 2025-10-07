@@ -366,6 +366,30 @@ class ConfigLoader:
             config.get("system", {}).get("concurrency", {}).get("max_workers", 3)
         )
 
+    def get_pool_connections(self) -> int:
+        """
+        Get number of HTTP connection pools to cache.
+
+        Returns:
+            int: Pool connections. Defaults to 10 if not configured.
+        """
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {}).get("concurrency", {}).get("pool_connections", 10)
+        )
+
+    def get_pool_maxsize(self) -> int:
+        """
+        Get maximum number of connections per pool.
+
+        Returns:
+            int: Pool maxsize. Defaults to 20 if not configured.
+        """
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {}).get("concurrency", {}).get("pool_maxsize", 20)
+        )
+
     def get_circuit_breaker_failure_threshold(self) -> int:
         """
         Get circuit breaker failure threshold.

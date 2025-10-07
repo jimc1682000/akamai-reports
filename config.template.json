@@ -107,7 +107,13 @@
     "concurrency": {
       "_description": "並行執行配置",
       "max_workers": 3,
-      "_max_workers_note": "並行 API 請求的最大工作執行緒數，預設為 3"
+      "_max_workers_note": "並行 API 請求的最大工作執行緒數，預設為 3",
+      "rate_limit_delay": 0.1,
+      "_rate_limit_delay_note": "請求之間的延遲時間（秒），用於避免觸發 API rate limit，預設為 0.1 秒",
+      "pool_connections": 10,
+      "_pool_connections_note": "HTTP 連線池數量，預設為 10",
+      "pool_maxsize": 20,
+      "_pool_maxsize_note": "每個連線池的最大連線數，預設為 20"
     },
 
     "circuit_breaker": {
