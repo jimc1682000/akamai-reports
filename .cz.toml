@@ -1,0 +1,49 @@
+# Commitizen configuration for Conventional Commits validation
+# https://commitizen-tools.github.io/commitizen/
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"
+update_changelog_on_bump = false
+major_version_zero = true
+
+# Commit message validation rules
+[tool.commitizen.customize]
+message_template = "{{change_type}}{% if scope %}({{scope}}){% endif %}: {{message}}"
+schema = "<type>(<scope>): <subject>"
+schema_pattern = "^(feat|fix|docs|style|refactor|perf|test|chore|revert|ci|build|security)(\\(\\w+\\))?!?: .{1,100}"
+
+# Custom commit types
+[[tool.commitizen.customize.questions]]
+type = "list"
+name = "change_type"
+message = "Select the type of change you are committing:"
+choices = [
+    {value = "feat", name = "feat: A new feature"},
+    {value = "fix", name = "fix: A bug fix"},
+    {value = "docs", name = "docs: Documentation only changes"},
+    {value = "style", name = "style: Changes that do not affect the meaning of the code"},
+    {value = "refactor", name = "refactor: A code change that neither fixes a bug nor adds a feature"},
+    {value = "perf", name = "perf: A code change that improves performance"},
+    {value = "test", name = "test: Adding missing tests or correcting existing tests"},
+    {value = "chore", name = "chore: Changes to the build process or auxiliary tools"},
+    {value = "revert", name = "revert: Revert to a commit"},
+    {value = "ci", name = "ci: Changes to CI configuration files and scripts"},
+    {value = "build", name = "build: Changes that affect the build system or external dependencies"},
+    {value = "security", name = "security: Security improvements or fixes"},
+]
+
+[[tool.commitizen.customize.questions]]
+type = "input"
+name = "scope"
+message = "What is the scope of this change? (optional, press enter to skip):"
+
+[[tool.commitizen.customize.questions]]
+type = "input"
+name = "message"
+message = "Write a short, imperative mood description of the change:"
+
+# Bump rules for semantic versioning
+bump_pattern = "^(feat|fix|refactor|perf|security)"
+bump_map = {"feat" = "MINOR", "fix" = "PATCH", "refactor" = "PATCH", "perf" = "PATCH", "security" = "PATCH"}

@@ -47,6 +47,13 @@ task quality          # Run linter + formatter
 task lint-fix         # Auto-fix linting issues
 task format           # Format code
 
+# Version management
+task version          # Show current version
+task changelog-preview  # Preview unreleased changes
+task bump-patch       # Bump patch version (0.1.0 -> 0.1.1)
+task bump-minor       # Bump minor version (0.1.0 -> 0.2.0)
+task bump-major       # Bump major version (0.1.0 -> 1.0.0)
+
 # Testing
 task test-coverage    # Full test suite with coverage
 task test-quick       # Fast tests without coverage

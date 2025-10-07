@@ -136,6 +136,103 @@ python tools/compare_v1_v2_apis.py --start YYYY-MM-01 --end YYYY-MM-30
 
 **注意**：V1 API 需要逐日查詢（每天每地區一次 API 請求），腳本已加入延遲避免 rate limiting。
 
+### 版本管理
+
+本專案使用 [git-cliff](https://git-cliff.org/) 自動生成 CHANGELOG 並管理版本。
+
+#### 檢查當前版本
+```bash
+task version
+```
+
+#### 生成 CHANGELOG 預覽（不創建 tag）
+```bash
+# 預覽未發布的變更
+task changelog-preview
+
+# 生成完整 CHANGELOG.md（不創建 tag）
+task changelog-generate
+```
+
+#### 版本升級（自動生成 CHANGELOG + Git Tag）
+```bash
+# Patch 版本升級 (0.1.0 -> 0.1.1) - 修復 bug
+task bump-patch
+
+# Minor 版本升級 (0.1.0 -> 0.2.0) - 新增功能
+task bump-minor
+
+# Major 版本升級 (0.1.0 -> 1.0.0) - 重大變更
+task bump-major
+```
+
+**版本升級流程**：
+1. 自動更新 `VERSION` 文件
+2. 使用 git-cliff 生成/更新 `CHANGELOG.md`
+3. 創建 git commit（含 VERSION 和 CHANGELOG.md）
+4. 創建 git tag（格式：`v0.1.0`）
+5. 提示推送到遠端倉庫的指令
+
+**Commit 訊息規範**：
+本專案遵循 [Conventional Commits](https://www.conventionalcommits.org/) 規範，並使用 commitizen 自動驗證：
+
+**允許的 commit 類型**：
+- `feat:` - 新功能（觸發 MINOR 版本升級）
+- `fix:` - Bug 修復（觸發 PATCH 版本升級）
+- `docs:` - 文檔更新
+- `refactor:` - 代碼重構（觸發 PATCH 版本升級）
+- `test:` - 測試相關
+- `chore:` - 雜項任務、構建工具
+- `perf:` - 性能優化（觸發 PATCH 版本升級）
+- `style:` - 代碼格式（不影響功能）
+- `ci:` - CI/CD 配置
+- `build:` - 構建系統或依賴更新
+- `security:` - 安全性改進（觸發 PATCH 版本升級）
+- `revert:` - 回退 commit
+
+**Commit 格式範例**：
+```bash
+feat(api): add V2 emissions API support
+fix(config): correct CP code validation logic
+docs(readme): update installation instructions
+test(integration): add edge case tests for circuit breaker
+chore(deps): update requests to 2.31.0
+```
+
+**使用 commitizen 輔助工具**：
+```bash
+# 互動式 commit（自動生成符合規範的訊息）
+cz commit
+
+# 或使用 git commit（會自動驗證格式）
+git commit -m "feat: add new feature"
+```
+
+**Pre-commit Hook 自動驗證**：
+- 每次 commit 時會自動檢查訊息格式
+- 不符合規範的 commit 會被拒絕
+- 確保所有 commit 都符合 Conventional Commits 標準
+
+**初始化版本系統**：
+```bash
+# 如果是第一次使用，初始化 VERSION 文件
+task version-init
+```
+
+**🔄 重寫舊 Commits（可選）**：
+
+如果你想將舊的非標準 commit messages 改寫為 Conventional Commits 格式：
+
+```bash
+# 方法 1: 使用互動式腳本（推薦）
+./scripts/interactive_rewrite.sh
+
+# 方法 2: 手動執行 git rebase
+git rebase -i --root
+```
+
+⚠️ **警告**：重寫歷史會改變 commit SHA，需要 force push。詳細指南請參閱 [`docs/REWRITE_COMMITS_GUIDE.md`](docs/REWRITE_COMMITS_GUIDE.md)
+
 ### 開發工作流
 
 #### 代碼品質檢查
