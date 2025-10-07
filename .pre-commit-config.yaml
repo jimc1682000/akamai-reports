@@ -5,7 +5,7 @@ repos:
   # Ruff linter and formatter - fast Python linter and formatter
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Use the specific version that matches our requirements
-    rev: v0.13.0
+    rev: v0.13.3
     hooks:
       # Run ruff linter with auto-fixes
       - id: ruff
@@ -34,9 +34,25 @@ repos:
         files: ^tools/lib/.*\.py$
         exclude: ^tests/.*$
 
+  # Secret detection (offline, no API key required)
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: "Detect Secrets"
+        description: "Detect hardcoded secrets in staged files (offline)"
+        args: ['--baseline', '.secrets.baseline']
+        exclude: |
+          (?x)^(
+              tests/.*|
+              \.secrets\.baseline|
+              config\.json|
+              .*_report_.*\.json
+          )$
+
   # General code quality hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       # Remove trailing whitespace
       - id: trailing-whitespace
