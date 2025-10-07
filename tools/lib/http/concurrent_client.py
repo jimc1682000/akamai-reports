@@ -25,7 +25,7 @@ class ConcurrentAPIClient:
     Uses requests.Session with connection pooling for efficient network usage.
 
     Args:
-        max_workers: Maximum number of concurrent requests (default: 5)
+        max_workers: Maximum number of concurrent requests (default: 3)
         rate_limit_delay: Delay between request submissions in seconds (default: 0.1)
         pool_connections: Number of connection pools to cache (default: 10)
         pool_maxsize: Maximum number of connections to save in pool (default: 20)
@@ -33,7 +33,7 @@ class ConcurrentAPIClient:
 
     def __init__(
         self,
-        max_workers: int = 5,
+        max_workers: int = 3,
         rate_limit_delay: float = 0.1,
         pool_connections: int = 10,
         pool_maxsize: int = 20,

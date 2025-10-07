@@ -803,6 +803,8 @@ def get_all_service_traffic(
         client = ConcurrentAPIClient(
             max_workers=min(max_workers, len(cp_codes)),
             rate_limit_delay=config_loader.get_rate_limit_delay(),
+            pool_connections=config_loader.get_pool_connections(),
+            pool_maxsize=config_loader.get_pool_maxsize(),
         )
 
         results = client.execute_batch(
@@ -982,6 +984,8 @@ def get_all_regional_traffic(
         client = ConcurrentAPIClient(
             max_workers=min(max_workers, len(target_regions)),
             rate_limit_delay=config_loader.get_rate_limit_delay(),
+            pool_connections=config_loader.get_pool_connections(),
+            pool_maxsize=config_loader.get_pool_maxsize(),
         )
 
         results = client.execute_batch(

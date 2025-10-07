@@ -37,16 +37,16 @@ class CircuitBreaker:
     - HALF_OPEN: Testing recovery, limited requests allowed
 
     Args:
-        failure_threshold: Number of failures before opening circuit (default: 5)
-        recovery_timeout: Seconds before attempting recovery (default: 60)
+        failure_threshold: Number of failures before opening circuit (default: 3)
+        recovery_timeout: Seconds before attempting recovery (default: 30)
         success_threshold: Successes needed to close circuit from half-open (default: 2)
         name: Optional name for logging purposes
     """
 
     def __init__(
         self,
-        failure_threshold: int = 5,
-        recovery_timeout: int = 60,
+        failure_threshold: int = 3,
+        recovery_timeout: int = 30,
         success_threshold: int = 2,
         name: str = "unnamed",
     ):
