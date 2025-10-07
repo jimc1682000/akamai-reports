@@ -3,11 +3,11 @@ Response Cache Implementation
 
 This module provides file-based response caching with TTL for API responses.
 Useful for development and testing to avoid unnecessary API calls.
+Uses JSON serialization for security and performance.
 """
 
 import hashlib
 import json
-import pickle
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -63,33 +63,44 @@ class ResponseCache:
         Returns:
             Cached response or None if expired/not found
         """
-        cache_file = self.cache_dir / f"{key}.pkl"
+        cache_file = self.cache_dir / f"{key}.json"
 
         if not cache_file.exists():
             return None
 
-        # Check expiration
-        modified_time = datetime.fromtimestamp(cache_file.stat().st_mtime)
-        if datetime.now() - modified_time > self.ttl:
-            # Cache expired, delete it
+        # Load cached data with TTL
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                cache_data = json.load(f)
+
+            # Check expiration using stored TTL timestamp
+            expires_at = datetime.fromisoformat(cache_data["expires_at"])
+            if datetime.now() >= expires_at:
+                # Cache expired, delete it
+                cache_file.unlink()
+                return None
+
+            return cache_data["value"]
+        except (json.JSONDecodeError, KeyError, ValueError):
+            # Corrupted cache file, delete it
             cache_file.unlink()
             return None
 
-        # Load cached response
-        with open(cache_file, "rb") as f:
-            return pickle.load(f)
-
     def set(self, key: str, value: Any) -> None:
         """
-        Store response in cache.
+        Store response in cache with TTL timestamp.
 
         Args:
             key: Cache key
             value: Response to cache
         """
-        cache_file = self.cache_dir / f"{key}.pkl"
-        with open(cache_file, "wb") as f:
-            pickle.dump(value, f)
+        cache_file = self.cache_dir / f"{key}.json"
+        expires_at = datetime.now() + self.ttl
+
+        cache_data = {"value": value, "expires_at": expires_at.isoformat()}
+
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache_data, f, indent=2)
 
     def cached_call(self, func: Callable, func_name: str, **kwargs) -> Any:
         """
@@ -131,7 +142,7 @@ class ResponseCache:
             Number of cache files deleted
         """
         count = 0
-        for cache_file in self.cache_dir.glob("*.pkl"):
+        for cache_file in self.cache_dir.glob("*.json"):
             cache_file.unlink()
             count += 1
         return count
@@ -143,7 +154,7 @@ class ResponseCache:
         Returns:
             Dictionary with cache statistics
         """
-        cache_files = list(self.cache_dir.glob("*.pkl"))
+        cache_files = list(self.cache_dir.glob("*.json"))
         total_size = sum(f.stat().st_size for f in cache_files)
 
         return {
