@@ -37,21 +37,21 @@ class TestSanitizingLogger(unittest.TestCase):
 
     def test_sanitize_client_token(self):
         """Test client_token sanitization"""
-        self.sanitizer.info("Config: client_token=akab-1234567890abcdef")
+        self.sanitizer.info("Config: client_token=akab-1234567890abcdef")  # ggignore
         output = self.get_log_output()
         self.assertNotIn("akab-1234567890abcdef", output)
         self.assertIn("***REDACTED***", output)
 
     def test_sanitize_client_secret(self):
         """Test client_secret sanitization"""
-        self.sanitizer.info("Auth: client_secret=supersecret123")
+        self.sanitizer.info("Auth: client_secret=supersecret123")  # ggignore
         output = self.get_log_output()
         self.assertNotIn("supersecret123", output)
         self.assertIn("***REDACTED***", output)
 
     def test_sanitize_access_token(self):
         """Test access_token sanitization"""
-        self.sanitizer.info("Token: access_token=akab-access-token-xyz")
+        self.sanitizer.info("Token: access_token=akab-access-token-xyz")  # ggignore
         output = self.get_log_output()
         self.assertNotIn("akab-access-token-xyz", output)
         self.assertIn("***REDACTED***", output)
@@ -95,7 +95,9 @@ class TestSanitizingLogger(unittest.TestCase):
 
     def test_sanitize_json_format(self):
         """Test sanitization in JSON-like strings"""
-        self.sanitizer.info('{"client_token": "akab-secret", "api_key": "12345"}')
+        self.sanitizer.info(
+            '{"client_token": "akab-secret", "api_key": "12345"}'
+        )  # ggignore
         output = self.get_log_output()
         self.assertNotIn("akab-secret", output)
         self.assertNotIn("12345", output)
@@ -110,7 +112,7 @@ class TestSanitizingLogger(unittest.TestCase):
 
     def test_case_insensitive(self):
         """Test case-insensitive pattern matching"""
-        self.sanitizer.info("CLIENT_TOKEN=secret")
+        self.sanitizer.info("CLIENT_TOKEN=secret")  # ggignore
         output = self.get_log_output()
         self.assertNotIn("secret", output)
         self.assertIn("***REDACTED***", output)
@@ -118,7 +120,7 @@ class TestSanitizingLogger(unittest.TestCase):
     def test_multiple_secrets_in_message(self):
         """Test multiple secrets in single message"""
         self.sanitizer.info(
-            "Config: client_token=abc123 password=xyz789 api_key=key456"
+            "Config: client_token=abc123 password=xyz789 api_key=key456"  # ggignore
         )
         output = self.get_log_output()
         self.assertNotIn("abc123", output)
@@ -214,8 +216,8 @@ class TestSanitizingLogger(unittest.TestCase):
             "Config loaded",
             extra={
                 "auth": {
-                    "client_token": "secret1",
-                    "client_secret": "secret2",
+                    "client_token": "secret1",  # ggignore
+                    "client_secret": "secret2",  # ggignore
                 }
             },
         )
