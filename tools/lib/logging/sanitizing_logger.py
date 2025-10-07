@@ -95,7 +95,7 @@ class SanitizingLogger:
         if not extra:
             return {}
 
-        sanitized_extra = {}
+        sanitized_extra: Dict[str, Any] = {}
         for key, value in extra.items():
             if isinstance(value, str):
                 sanitized_extra[key] = self._sanitize(value)

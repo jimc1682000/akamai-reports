@@ -375,8 +375,10 @@ def _handle_response_status(
         raise APIAuthorizationError("Authorization failed (403)")
     elif status == 429:
         _handle_rate_limit(attempt, max_retries, config_loader)
+        return None  # Will retry
     elif status >= 500:
         _handle_server_error(status, attempt, max_retries, config_loader)
+        return None  # Will retry
     else:
         logger.error(f"❌ 未預期的狀態碼: {status}")
         raise APIRequestError(status, f"Unexpected status code: {status}")
@@ -416,7 +418,7 @@ def _handle_success_response(
     if env_validate:
         _validate_response_schema(data, api_type)
 
-    return data
+    return data  # type: ignore[no-any-return]
 
 
 def _validate_response_schema(data: Dict[str, Any], api_type: str) -> None:
@@ -600,7 +602,7 @@ def call_traffic_api(
 
     if enable_cache:
         # Use cache with circuit breaker
-        return _response_cache.cached_call(
+        return _response_cache.cached_call(  # type: ignore[no-any-return]
             lambda **kw: circuit_breaker.call(
                 _make_api_request_with_retry,
                 kw["url"],
@@ -619,7 +621,7 @@ def call_traffic_api(
         )
     else:
         # Direct call with circuit breaker only
-        return circuit_breaker.call(
+        return circuit_breaker.call(  # type: ignore[no-any-return]
             _make_api_request_with_retry,
             url,
             params,
@@ -866,7 +868,7 @@ def call_emissions_api(
     circuit_breaker = _get_emissions_circuit_breaker(config_loader)
 
     # Use circuit breaker to protect against cascading failures
-    return circuit_breaker.call(
+    return circuit_breaker.call(  # type: ignore[no-any-return]
         _make_api_request_with_retry,
         url,
         params,

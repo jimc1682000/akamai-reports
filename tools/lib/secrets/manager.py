@@ -110,6 +110,12 @@ class SecretManager:
                 f"Missing required environment variables: {', '.join(missing_vars)}"
             )
 
+        # Type assertions after validation
+        assert client_token is not None
+        assert client_secret is not None
+        assert access_token is not None
+        assert host is not None
+
         return AkamaiCredentials(
             client_token=client_token,
             client_secret=client_secret,
