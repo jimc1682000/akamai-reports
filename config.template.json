@@ -41,6 +41,18 @@
     "_edgerc_note": "要使用的 ~/.edgerc 檔案中的 section 名稱"
   },
 
+  "authentication": {
+    "_description": "認證設定",
+    "source": "edgerc",
+    "_source_options": [
+      "edgerc - 使用 ~/.edgerc 檔案 (預設)",
+      "env - 使用環境變數 (AKAMAI_CLIENT_TOKEN, AKAMAI_CLIENT_SECRET, AKAMAI_ACCESS_TOKEN, AKAMAI_HOST)",
+      "aws - 使用 AWS Secrets Manager (未來功能)"
+    ],
+    "edgerc_path": null,
+    "_edgerc_path_note": "自訂 .edgerc 檔案路徑，null 則使用 ~/.edgerc"
+  },
+
   "business": {
     "_description": "業務相關配置 (敏感資訊)",
     "cp_codes": [
