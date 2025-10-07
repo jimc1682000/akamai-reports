@@ -95,6 +95,15 @@ repos:
   #       args: ["--profile", "black", "--line-length", "88"]
   #       types: [python]
 
+  # Commitizen - Conventional Commits validation
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.27.0
+    hooks:
+      - id: commitizen
+        name: "Commitizen Check"
+        description: "Validate commit message follows Conventional Commits"
+        stages: [commit-msg]
+
 # Configuration for specific file patterns
 exclude: |
   (?x)^(

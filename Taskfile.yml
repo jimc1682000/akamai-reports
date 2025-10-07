@@ -21,6 +21,7 @@ tasks:
     deps: [install]
     cmds:
       - pre-commit install
+      - pre-commit install --hook-type commit-msg
       - echo "✅ Development environment setup complete"
 
   # Code quality tasks
@@ -151,6 +152,50 @@ tasks:
       - git status
       - echo "Recent commits:"
       - git log --oneline -5
+
+  # Version management tasks
+  version:
+    desc: Show current version
+    cmds:
+      - |
+        if [ -f VERSION ]; then
+          echo "Current version: $(cat VERSION)"
+        else
+          echo "No VERSION file found. Use 'task version-init' to create one."
+        fi
+      - git describe --tags --abbrev=0 2>/dev/null || echo "No git tags found"
+
+  version-init:
+    desc: Initialize VERSION file with 0.1.0
+    cmds:
+      - echo "0.1.0" > VERSION
+      - echo "✅ Created VERSION file with version 0.1.0"
+
+  changelog-preview:
+    desc: Preview CHANGELOG without creating tags
+    cmds:
+      - git-cliff --unreleased
+
+  changelog-generate:
+    desc: Generate full CHANGELOG.md (no tags created)
+    cmds:
+      - git-cliff --output CHANGELOG.md
+      - echo "✅ CHANGELOG.md generated"
+
+  bump-patch:
+    desc: Bump patch version (0.1.0 -> 0.1.1)
+    cmds:
+      - ./scripts/bump_version.sh patch
+
+  bump-minor:
+    desc: Bump minor version (0.1.0 -> 0.2.0)
+    cmds:
+      - ./scripts/bump_version.sh minor
+
+  bump-major:
+    desc: Bump major version (0.1.0 -> 1.0.0)
+    cmds:
+      - ./scripts/bump_version.sh major
 
   # CI/Development workflow
   ci:
