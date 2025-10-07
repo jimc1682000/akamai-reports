@@ -331,6 +331,56 @@ class TestConfigLoader(unittest.TestCase):
         timeout = loader.get_request_timeout()
         self.assertEqual(timeout, 60)
 
+    def test_get_request_timeout_with_api_specific(self):
+        """Test get_request_timeout with API-specific configuration"""
+        config = self.valid_config.copy()
+        config["api"]["timeouts"] = {"traffic": 60, "emissions": 90}
+        self._write_config_file(config)
+        loader = ConfigLoader(self.test_config_file)
+        loader.load_config()
+
+        # Test API-specific timeouts
+        traffic_timeout = loader.get_request_timeout("traffic")
+        self.assertEqual(traffic_timeout, 60)
+
+        emissions_timeout = loader.get_request_timeout("emissions")
+        self.assertEqual(emissions_timeout, 90)
+
+        # Test default timeout when no API type specified
+        default_timeout = loader.get_request_timeout()
+        self.assertEqual(default_timeout, 60)
+
+    def test_get_request_timeout_fallback_to_default(self):
+        """Test get_request_timeout falls back to default when API type not configured"""
+        config = self.valid_config.copy()
+        # Only configure timeout for traffic, not emissions
+        config["api"]["timeouts"] = {"traffic": 45}
+        self._write_config_file(config)
+        loader = ConfigLoader(self.test_config_file)
+        loader.load_config()
+
+        # Traffic should use specific timeout
+        traffic_timeout = loader.get_request_timeout("traffic")
+        self.assertEqual(traffic_timeout, 45)
+
+        # Emissions should fall back to default
+        emissions_timeout = loader.get_request_timeout("emissions")
+        self.assertEqual(emissions_timeout, 60)
+
+    def test_get_request_timeout_case_insensitive(self):
+        """Test get_request_timeout is case-insensitive"""
+        config = self.valid_config.copy()
+        config["api"]["timeouts"] = {"traffic": 60, "emissions": 90}
+        self._write_config_file(config)
+        loader = ConfigLoader(self.test_config_file)
+        loader.load_config()
+
+        # Test case variations
+        self.assertEqual(loader.get_request_timeout("Traffic"), 60)
+        self.assertEqual(loader.get_request_timeout("TRAFFIC"), 60)
+        self.assertEqual(loader.get_request_timeout("Emissions"), 90)
+        self.assertEqual(loader.get_request_timeout("EMISSIONS"), 90)
+
     def test_get_data_point_limit(self):
         """Test get_data_point_limit method"""
         self._write_config_file(self.valid_config)
