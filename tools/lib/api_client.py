@@ -22,7 +22,7 @@ import time
 from typing import Any, Dict, Optional
 
 import requests
-from akamai.edgegrid import EdgeGridAuth, EdgeRc
+from akamai.edgegrid import EdgeGridAuth
 from pydantic import ValidationError
 
 from tools.lib.cache import ResponseCache
@@ -173,11 +173,16 @@ def clear_cache() -> int:
 
 def setup_authentication(config_loader: Optional[ConfigLoader] = None) -> EdgeGridAuth:
     """
-    Initialize Akamai EdgeGrid authentication.
+    Initialize Akamai EdgeGrid authentication using SecretManager.
+
+    Supports multiple authentication sources:
+    - .edgerc file (default)
+    - Environment variables
+    - AWS Secrets Manager (future)
 
     Args:
-        config_loader: Optional ConfigLoader instance to get edgerc section name.
-                      If not provided, defaults to "default" section.
+        config_loader: Optional ConfigLoader instance to get auth configuration.
+                      If not provided, defaults to .edgerc with "default" section.
 
     Returns:
         EdgeGridAuth: Configured authentication object
@@ -186,11 +191,43 @@ def setup_authentication(config_loader: Optional[ConfigLoader] = None) -> EdgeGr
         Exception: If authentication setup fails
     """
     try:
-        edgerc = EdgeRc("~/.edgerc")
-        section = config_loader.get_edgerc_section() if config_loader else "default"
-        auth = EdgeGridAuth.from_edgerc(edgerc, section)
-        logger.info("✅ 認證設定成功")
+        from tools.lib.secrets import SecretManager
+
+        # Get auth configuration from config_loader
+        if config_loader:
+            auth_source = config_loader.get_auth_source()
+            edgerc_path = config_loader.get_edgerc_path()
+            edgerc_section = config_loader.get_edgerc_section()
+        else:
+            # Defaults when no config_loader
+            auth_source = "edgerc"
+            edgerc_path = None
+            edgerc_section = "default"
+
+        # Initialize SecretManager
+        secret_manager = SecretManager(
+            auth_source=auth_source,
+            edgerc_path=edgerc_path,
+            edgerc_section=edgerc_section,
+        )
+
+        # Get credentials
+        credentials = secret_manager.get_akamai_credentials()
+
+        # Validate credentials
+        if not secret_manager.validate_credentials(credentials):
+            raise ValueError("Invalid credentials: missing required fields")
+
+        # Create EdgeGridAuth from credentials
+        auth = EdgeGridAuth(
+            client_token=credentials.client_token,
+            client_secret=credentials.client_secret,
+            access_token=credentials.access_token,
+        )
+
+        logger.info(f"✅ 認證設定成功 (來源: {auth_source})")
         return auth
+
     except Exception as e:
         logger.error(f"❌ 認證設定失敗: {e}")
         raise

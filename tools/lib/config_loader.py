@@ -403,6 +403,25 @@ class ConfigLoader:
         """
         return self.config.get("api", {}).get("edgerc_section", "default")
 
+    def get_auth_source(self) -> str:
+        """
+        Get authentication source.
+
+        Returns:
+            str: Authentication source ('edgerc', 'env', or 'aws').
+                 Defaults to 'edgerc' if not configured.
+        """
+        return self.config.get("authentication", {}).get("source", "edgerc")
+
+    def get_edgerc_path(self) -> Optional[str]:
+        """
+        Get custom .edgerc file path.
+
+        Returns:
+            Optional[str]: Custom path to .edgerc file, or None to use default (~/.edgerc)
+        """
+        return self.config.get("authentication", {}).get("edgerc_path")
+
     def print_config_summary(self):
         """Print a summary of loaded configuration (without sensitive data)"""
         if not self.config:
