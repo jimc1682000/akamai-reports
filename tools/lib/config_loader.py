@@ -220,8 +220,23 @@ class ConfigLoader:
         """Get maximum retry attempts"""
         return self.config["api"]["max_retries"]
 
-    def get_request_timeout(self) -> int:
-        """Get request timeout in seconds"""
+    def get_request_timeout(self, api_type: str = None) -> int:
+        """
+        Get request timeout in seconds for specific API type.
+
+        Args:
+            api_type: API type ("traffic" or "emissions"). If None, returns default timeout.
+
+        Returns:
+            int: Timeout in seconds
+        """
+        if api_type:
+            # Try to get API-specific timeout first
+            api_timeouts = self.config.get("api", {}).get("timeouts", {})
+            if api_type.lower() in api_timeouts:
+                return api_timeouts[api_type.lower()]
+
+        # Fall back to default timeout
         return self.config["api"]["timeout"]
 
     def get_data_point_limit(self) -> int:

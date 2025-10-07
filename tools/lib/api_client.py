@@ -260,7 +260,7 @@ def _make_api_request_with_retry(
                 params=params,
                 json=payload,
                 auth=auth,
-                timeout=config_loader.get_request_timeout(),
+                timeout=config_loader.get_request_timeout(api_type),
             )
 
             duration_ms = req_context.get_duration_ms()

@@ -12,6 +12,13 @@
       "emissions": "https://YOUR_AKAMAI_ENDPOINT/reporting-api/v2/reports/delivery/traffic/emissions/data"
     },
     "timeout": 60,
+    "_timeout_note": "預設超時時間（秒），當特定 API 沒有配置時使用",
+    "timeouts": {
+      "_description": "各 API 的超時配置（可選）",
+      "traffic": 60,
+      "emissions": 90,
+      "_note": "Emissions API 通常需要更長的處理時間"
+    },
     "max_retries": 3,
 
     "retry_delays": {
