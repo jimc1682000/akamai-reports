@@ -6,13 +6,17 @@ This module handles loading and validation of external configuration files,
 replacing hardcoded constants in the main script.
 
 Author: Development Team
-Version: 1.0
+Version: 2.0
 Date: 2024-09-24
 """
 
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from pydantic import ValidationError
+
+from tools.lib.models.config_models import Config
 
 
 class ConfigurationError(Exception):
@@ -22,20 +26,11 @@ class ConfigurationError(Exception):
 
 
 class ConfigLoader:
-    """Configuration loader and validator for Akamai Traffic Report"""
+    """
+    Configuration loader and validator for Akamai Traffic Report.
 
-    REQUIRED_SECTIONS = ["api", "business", "reporting", "system"]
-    REQUIRED_API_FIELDS = ["endpoints", "timeout", "max_retries"]
-    REQUIRED_BUSINESS_FIELDS = ["cp_codes", "service_mappings", "billing_coefficient"]
-    REQUIRED_REPORTING_FIELDS = ["week_definition", "region_mappings"]
-    REQUIRED_SYSTEM_FIELDS = ["data_point_limit"]
-
-    VALID_WEEK_DEFINITIONS = [
-        "sunday_to_saturday",
-        "monday_to_sunday",
-        "monday_to_friday",
-        "custom",
-    ]
+    Uses Pydantic models for type-safe validation with comprehensive error messages.
+    """
 
     def __init__(self, config_file: str = "config.json"):
         """
@@ -46,10 +41,11 @@ class ConfigLoader:
         """
         self.config_file = config_file
         self.config: Optional[Dict[str, Any]] = None
+        self.validated_config: Optional[Config] = None
 
     def load_config(self) -> Dict[str, Any]:
         """
-        Load and validate configuration from file
+        Load and validate configuration from file using Pydantic models.
 
         Returns:
             Dict[str, Any]: Loaded configuration
@@ -67,16 +63,28 @@ class ConfigLoader:
 
             # Load JSON configuration
             with open(self.config_file, encoding="utf-8") as f:
-                self.config = json.load(f)
+                config_data = json.load(f)
 
-            # Validate configuration structure
-            self._validate_config()
+            # Validate using Pydantic model
+            try:
+                self.validated_config = Config.model_validate(config_data)
+                # Store raw dict for backward compatibility
+                self.config = config_data
+            except ValidationError as e:
+                # Format Pydantic validation errors for better readability
+                error_messages = []
+                for error in e.errors():
+                    field_path = " -> ".join(str(loc) for loc in error["loc"])
+                    error_messages.append(f"  • {field_path}: {error['msg']}")
+                raise ConfigurationError("配置驗證失敗:\n" + "\n".join(error_messages))
 
             print(f"✅ 配置載入成功: {self.config_file}")
             return self.config
 
         except json.JSONDecodeError as e:
             raise ConfigurationError(f"配置檔案 JSON 格式錯誤: {e}")
+        except ConfigurationError:
+            raise
         except Exception as e:
             raise ConfigurationError(f"配置載入失敗: {e}")
 
@@ -85,117 +93,6 @@ class ConfigLoader:
         if self.config is None:
             raise ConfigurationError("配置未載入，請先呼叫 load_config()")
         return self.config
-
-    def _validate_config(self):
-        """Validate loaded configuration structure"""
-        if not self.config:
-            raise ConfigurationError("配置為空")
-
-        # Check required sections
-        missing_sections = []
-        for section in self.REQUIRED_SECTIONS:
-            if section not in self.config:
-                missing_sections.append(section)
-
-        if missing_sections:
-            raise ConfigurationError(f"缺少必要配置區段: {', '.join(missing_sections)}")
-
-        # Validate API section
-        self._validate_section(self.config["api"], self.REQUIRED_API_FIELDS, "api")
-
-        # Validate business section
-        self._validate_section(
-            self.config["business"], self.REQUIRED_BUSINESS_FIELDS, "business"
-        )
-
-        # Validate reporting section
-        self._validate_section(
-            self.config["reporting"], self.REQUIRED_REPORTING_FIELDS, "reporting"
-        )
-
-        # Validate system section
-        self._validate_section(
-            self.config["system"], self.REQUIRED_SYSTEM_FIELDS, "system"
-        )
-
-        # Validate specific fields
-        self._validate_week_definition()
-        self._validate_cp_codes()
-        self._validate_service_mappings()
-
-    def _validate_section(
-        self, section: Dict[str, Any], required_fields: List[str], section_name: str
-    ):
-        """Validate a configuration section has required fields"""
-        missing_fields = []
-        for field in required_fields:
-            if field not in section:
-                missing_fields.append(field)
-
-        if missing_fields:
-            raise ConfigurationError(
-                f"配置區段 '{section_name}' 缺少必要欄位: {', '.join(missing_fields)}"
-            )
-
-    def _validate_week_definition(self):
-        """Validate week definition setting"""
-        config = self._ensure_config_loaded()
-        week_def = config["reporting"]["week_definition"]
-        if week_def not in self.VALID_WEEK_DEFINITIONS:
-            raise ConfigurationError(
-                f"無效的週期定義: {week_def}. "
-                f"可用選項: {', '.join(self.VALID_WEEK_DEFINITIONS)}"
-            )
-
-        # If custom, check custom_start_day is provided
-        if week_def == "custom":
-            if "custom_start_day" not in config["reporting"]:
-                raise ConfigurationError(
-                    "使用 'custom' 週期定義時必須提供 'custom_start_day' 參數"
-                )
-
-            start_day = config["reporting"]["custom_start_day"]
-            if not isinstance(start_day, int) or start_day < 0 or start_day > 6:
-                raise ConfigurationError(
-                    f"custom_start_day 必須是 0-6 之間的整數 (0=週日, 6=週六)，當前值: {start_day}"
-                )
-
-    def _validate_cp_codes(self):
-        """Validate CP codes list"""
-        assert self.config is not None
-        cp_codes = self.config["business"]["cp_codes"]
-        if not isinstance(cp_codes, list):
-            raise ConfigurationError("cp_codes 必須是陣列格式")
-
-        if len(cp_codes) == 0:
-            raise ConfigurationError("cp_codes 陣列不能為空")
-
-        # Check all CP codes are strings
-        for i, cp_code in enumerate(cp_codes):
-            if not isinstance(cp_code, str):
-                raise ConfigurationError(
-                    f"CP code at index {i} 必須是字串格式: {cp_code}"
-                )
-
-    def _validate_service_mappings(self):
-        """Validate service mappings structure"""
-        assert self.config is not None
-        mappings = self.config["business"]["service_mappings"]
-        if not isinstance(mappings, dict):
-            raise ConfigurationError("service_mappings 必須是物件格式")
-
-        for cp_code, mapping in mappings.items():
-            if not isinstance(mapping, dict):
-                raise ConfigurationError(
-                    f"service_mappings['{cp_code}'] 必須是物件格式"
-                )
-
-            required_mapping_fields = ["name", "unit", "description"]
-            for field in required_mapping_fields:
-                if field not in mapping:
-                    raise ConfigurationError(
-                        f"service_mappings['{cp_code}'] 缺少必要欄位: {field}"
-                    )
 
     # Accessor methods for easy configuration access
     def get_cp_codes(self) -> List[str]:
