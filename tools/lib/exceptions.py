@@ -29,6 +29,8 @@ Usage Example:
         print(f"API error: {e}")
 """
 
+from typing import Optional
+
 
 class AkamaiAPIError(Exception):
     """
@@ -86,7 +88,7 @@ class APIRateLimitError(AkamaiAPIError):
         retry_after (int, optional): Suggested number of seconds to wait before retry
     """
 
-    def __init__(self, retry_after: int = None):
+    def __init__(self, retry_after: Optional[int] = None):
         self.retry_after = retry_after
         msg = "Rate limit exceeded"
         if retry_after:

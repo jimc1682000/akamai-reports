@@ -20,6 +20,20 @@ repos:
         description: "Format Python code with ruff"
         types: [python]
 
+  # MyPy static type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2
+    hooks:
+      - id: mypy
+        name: "MyPy Type Checking"
+        description: "Run MyPy static type checking"
+        args: [--config-file=mypy.ini]
+        additional_dependencies:
+          - types-requests
+          - pydantic
+        files: ^tools/lib/.*\.py$
+        exclude: ^tests/.*$
+
   # General code quality hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
