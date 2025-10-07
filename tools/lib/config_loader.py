@@ -45,7 +45,7 @@ class ConfigLoader:
             config_file (str): Path to configuration file (default: 'config.json')
         """
         self.config_file = config_file
-        self.config = None
+        self.config: Optional[Dict[str, Any]] = None
 
     def load_config(self) -> Dict[str, Any]:
         """
@@ -79,6 +79,12 @@ class ConfigLoader:
             raise ConfigurationError(f"配置檔案 JSON 格式錯誤: {e}")
         except Exception as e:
             raise ConfigurationError(f"配置載入失敗: {e}")
+
+    def _ensure_config_loaded(self) -> Dict[str, Any]:
+        """Ensure config is loaded and return it"""
+        if self.config is None:
+            raise ConfigurationError("配置未載入，請先呼叫 load_config()")
+        return self.config
 
     def _validate_config(self):
         """Validate loaded configuration structure"""
@@ -133,7 +139,8 @@ class ConfigLoader:
 
     def _validate_week_definition(self):
         """Validate week definition setting"""
-        week_def = self.config["reporting"]["week_definition"]
+        config = self._ensure_config_loaded()
+        week_def = config["reporting"]["week_definition"]
         if week_def not in self.VALID_WEEK_DEFINITIONS:
             raise ConfigurationError(
                 f"無效的週期定義: {week_def}. "
@@ -142,12 +149,12 @@ class ConfigLoader:
 
         # If custom, check custom_start_day is provided
         if week_def == "custom":
-            if "custom_start_day" not in self.config["reporting"]:
+            if "custom_start_day" not in config["reporting"]:
                 raise ConfigurationError(
                     "使用 'custom' 週期定義時必須提供 'custom_start_day' 參數"
                 )
 
-            start_day = self.config["reporting"]["custom_start_day"]
+            start_day = config["reporting"]["custom_start_day"]
             if not isinstance(start_day, int) or start_day < 0 or start_day > 6:
                 raise ConfigurationError(
                     f"custom_start_day 必須是 0-6 之間的整數 (0=週日, 6=週六)，當前值: {start_day}"
@@ -155,6 +162,7 @@ class ConfigLoader:
 
     def _validate_cp_codes(self):
         """Validate CP codes list"""
+        assert self.config is not None
         cp_codes = self.config["business"]["cp_codes"]
         if not isinstance(cp_codes, list):
             raise ConfigurationError("cp_codes 必須是陣列格式")
@@ -171,6 +179,7 @@ class ConfigLoader:
 
     def _validate_service_mappings(self):
         """Validate service mappings structure"""
+        assert self.config is not None
         mappings = self.config["business"]["service_mappings"]
         if not isinstance(mappings, dict):
             raise ConfigurationError("service_mappings 必須是物件格式")
@@ -191,36 +200,43 @@ class ConfigLoader:
     # Accessor methods for easy configuration access
     def get_cp_codes(self) -> List[str]:
         """Get all CP codes list"""
-        return self.config["business"]["cp_codes"]
+        config = self._ensure_config_loaded()
+        return config["business"]["cp_codes"]  # type: ignore[no-any-return]
 
     def get_service_mappings(self) -> Dict[str, Dict[str, str]]:
         """Get service mappings dictionary"""
-        return self.config["business"]["service_mappings"]
+        config = self._ensure_config_loaded()
+        return config["business"]["service_mappings"]  # type: ignore[no-any-return]
 
     def get_region_mappings(self) -> Dict[str, str]:
         """Get region mappings dictionary"""
-        return self.config["reporting"]["region_mappings"]
+        config = self._ensure_config_loaded()
+        return config["reporting"]["region_mappings"]  # type: ignore[no-any-return]
 
     def get_target_regions(self) -> List[str]:
         """Get list of target regions to analyze"""
+        config = self._ensure_config_loaded()
         # Default to standard regions if not specified in config
-        return self.config["reporting"].get(
+        return config["reporting"].get(  # type: ignore[no-any-return]
             "target_regions", ["REGION_CODE_1", "REGION_CODE_2", "REGION_CODE_3"]
         )
 
     def get_billing_coefficient(self) -> float:
         """Get billing coefficient"""
-        return self.config["business"]["billing_coefficient"]
+        config = self._ensure_config_loaded()
+        return config["business"]["billing_coefficient"]  # type: ignore[no-any-return]
 
     def get_api_endpoints(self) -> Dict[str, str]:
         """Get API endpoints"""
-        return self.config["api"]["endpoints"]
+        config = self._ensure_config_loaded()
+        return config["api"]["endpoints"]  # type: ignore[no-any-return]
 
     def get_max_retries(self) -> int:
         """Get maximum retry attempts"""
-        return self.config["api"]["max_retries"]
+        config = self._ensure_config_loaded()
+        return config["api"]["max_retries"]  # type: ignore[no-any-return]
 
-    def get_request_timeout(self, api_type: str = None) -> int:
+    def get_request_timeout(self, api_type: Optional[str] = None) -> int:
         """
         Get request timeout in seconds for specific API type.
 
@@ -230,26 +246,30 @@ class ConfigLoader:
         Returns:
             int: Timeout in seconds
         """
+        config = self._ensure_config_loaded()
         if api_type:
             # Try to get API-specific timeout first
-            api_timeouts = self.config.get("api", {}).get("timeouts", {})
+            api_timeouts = config.get("api", {}).get("timeouts", {})
             if api_type.lower() in api_timeouts:
-                return api_timeouts[api_type.lower()]
+                return api_timeouts[api_type.lower()]  # type: ignore[no-any-return]
 
         # Fall back to default timeout
-        return self.config["api"]["timeout"]
+        return config["api"]["timeout"]  # type: ignore[no-any-return]
 
     def get_data_point_limit(self) -> int:
         """Get data point limit"""
-        return self.config["system"]["data_point_limit"]
+        config = self._ensure_config_loaded()
+        return config["system"]["data_point_limit"]  # type: ignore[no-any-return]
 
     def get_week_definition(self) -> str:
         """Get week definition setting"""
-        return self.config["reporting"]["week_definition"]
+        config = self._ensure_config_loaded()
+        return config["reporting"]["week_definition"]  # type: ignore[no-any-return]
 
     def get_custom_start_day(self) -> Optional[int]:
         """Get custom start day (if week_definition is 'custom')"""
-        return self.config["reporting"].get("custom_start_day")
+        config = self._ensure_config_loaded()
+        return config["reporting"].get("custom_start_day")  # type: ignore[no-any-return]
 
     def get_week_start_offset(self) -> int:
         """
@@ -259,6 +279,7 @@ class ConfigLoader:
             int: Days to offset from Sunday (0) to get the desired week start
                  0 = Sunday, 1 = Monday, etc.
         """
+        _ = self._ensure_config_loaded()  # Ensure config is loaded
         week_def = self.get_week_definition()
 
         if week_def == "sunday_to_saturday":
@@ -268,7 +289,10 @@ class ConfigLoader:
         elif week_def == "monday_to_friday":
             return 1  # Week starts on Monday (5-day week)
         elif week_def == "custom":
-            return self.get_custom_start_day()
+            custom_day = self.get_custom_start_day()
+            if custom_day is None:
+                raise ConfigurationError("custom week requires custom_start_day")
+            return custom_day
         else:
             raise ConfigurationError(f"未支援的週期定義: {week_def}")
 
@@ -279,6 +303,7 @@ class ConfigLoader:
         Returns:
             int: Number of days in the reporting week
         """
+        _ = self._ensure_config_loaded()  # Ensure config is loaded
         week_def = self.get_week_definition()
 
         if week_def == "monday_to_friday":
@@ -294,8 +319,9 @@ class ConfigLoader:
             int: Base for exponential backoff calculation (delay = base^attempt).
                  Defaults to 2 if not configured.
         """
-        return (
-            self.config.get("api", {})
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("api", {})
             .get("retry_delays", {})
             .get("exponential_backoff_base", 2)
         )
@@ -308,8 +334,9 @@ class ConfigLoader:
             float: Fixed delay after network errors in seconds.
                    Defaults to 1.0 if not configured.
         """
-        return (
-            self.config.get("api", {})
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("api", {})
             .get("retry_delays", {})
             .get("network_error_delay", 1.0)
         )
@@ -322,10 +349,9 @@ class ConfigLoader:
             float: Delay between API calls in seconds.
                    Defaults to 0.5 if not configured.
         """
-        return (
-            self.config.get("api", {})
-            .get("retry_delays", {})
-            .get("rate_limit_delay", 0.5)
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("api", {}).get("retry_delays", {}).get("rate_limit_delay", 0.5)
         )
 
     def get_max_workers(self) -> int:
@@ -335,8 +361,9 @@ class ConfigLoader:
         Returns:
             int: Maximum concurrent workers. Defaults to 3 if not configured.
         """
-        return (
-            self.config.get("system", {}).get("concurrency", {}).get("max_workers", 3)
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {}).get("concurrency", {}).get("max_workers", 3)
         )
 
     def get_circuit_breaker_failure_threshold(self) -> int:
@@ -346,8 +373,9 @@ class ConfigLoader:
         Returns:
             int: Number of failures before opening circuit. Defaults to 3.
         """
-        return (
-            self.config.get("system", {})
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {})
             .get("circuit_breaker", {})
             .get("failure_threshold", 3)
         )
@@ -359,8 +387,9 @@ class ConfigLoader:
         Returns:
             int: Seconds before attempting recovery. Defaults to 30.
         """
-        return (
-            self.config.get("system", {})
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {})
             .get("circuit_breaker", {})
             .get("recovery_timeout", 30)
         )
@@ -372,8 +401,9 @@ class ConfigLoader:
         Returns:
             int: Successes needed to close circuit from half-open. Defaults to 2.
         """
-        return (
-            self.config.get("system", {})
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {})
             .get("circuit_breaker", {})
             .get("success_threshold", 2)
         )
@@ -387,8 +417,9 @@ class ConfigLoader:
                    For example, 0.9 means warn at 90% of limit.
                    Defaults to 0.9 if not configured.
         """
-        return (
-            self.config.get("api", {})
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("api", {})
             .get("thresholds", {})
             .get("data_point_warning_ratio", 0.9)
         )
@@ -401,7 +432,8 @@ class ConfigLoader:
             str: Section name in ~/.edgerc file.
                  Defaults to 'default' if not configured.
         """
-        return self.config.get("api", {}).get("edgerc_section", "default")
+        config = self._ensure_config_loaded()
+        return config.get("api", {}).get("edgerc_section", "default")  # type: ignore[no-any-return]
 
     def get_auth_source(self) -> str:
         """
@@ -411,7 +443,8 @@ class ConfigLoader:
             str: Authentication source ('edgerc', 'env', or 'aws').
                  Defaults to 'edgerc' if not configured.
         """
-        return self.config.get("authentication", {}).get("source", "edgerc")
+        config = self._ensure_config_loaded()
+        return config.get("authentication", {}).get("source", "edgerc")  # type: ignore[no-any-return]
 
     def get_edgerc_path(self) -> Optional[str]:
         """
@@ -420,7 +453,8 @@ class ConfigLoader:
         Returns:
             Optional[str]: Custom path to .edgerc file, or None to use default (~/.edgerc)
         """
-        return self.config.get("authentication", {}).get("edgerc_path")
+        config = self._ensure_config_loaded()
+        return config.get("authentication", {}).get("edgerc_path")  # type: ignore[no-any-return]
 
     def print_config_summary(self):
         """Print a summary of loaded configuration (without sensitive data)"""
