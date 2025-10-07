@@ -6,13 +6,17 @@ This module handles loading and validation of external configuration files,
 replacing hardcoded constants in the main script.
 
 Author: Development Team
-Version: 1.0
+Version: 2.0
 Date: 2024-09-24
 """
 
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from pydantic import ValidationError
+
+from tools.lib.models.config_models import Config
 
 
 class ConfigurationError(Exception):
@@ -22,20 +26,11 @@ class ConfigurationError(Exception):
 
 
 class ConfigLoader:
-    """Configuration loader and validator for Akamai Traffic Report"""
+    """
+    Configuration loader and validator for Akamai Traffic Report.
 
-    REQUIRED_SECTIONS = ["api", "business", "reporting", "system"]
-    REQUIRED_API_FIELDS = ["endpoints", "timeout", "max_retries"]
-    REQUIRED_BUSINESS_FIELDS = ["cp_codes", "service_mappings", "billing_coefficient"]
-    REQUIRED_REPORTING_FIELDS = ["week_definition", "region_mappings"]
-    REQUIRED_SYSTEM_FIELDS = ["data_point_limit"]
-
-    VALID_WEEK_DEFINITIONS = [
-        "sunday_to_saturday",
-        "monday_to_sunday",
-        "monday_to_friday",
-        "custom",
-    ]
+    Uses Pydantic models for type-safe validation with comprehensive error messages.
+    """
 
     def __init__(self, config_file: str = "config.json"):
         """
@@ -45,11 +40,12 @@ class ConfigLoader:
             config_file (str): Path to configuration file (default: 'config.json')
         """
         self.config_file = config_file
-        self.config = None
+        self.config: Optional[Dict[str, Any]] = None
+        self.validated_config: Optional[Config] = None
 
     def load_config(self) -> Dict[str, Any]:
         """
-        Load and validate configuration from file
+        Load and validate configuration from file using Pydantic models.
 
         Returns:
             Dict[str, Any]: Loaded configuration
@@ -67,174 +63,112 @@ class ConfigLoader:
 
             # Load JSON configuration
             with open(self.config_file, encoding="utf-8") as f:
-                self.config = json.load(f)
+                config_data = json.load(f)
 
-            # Validate configuration structure
-            self._validate_config()
+            # Validate using Pydantic model
+            try:
+                self.validated_config = Config.model_validate(config_data)
+                # Store raw dict for backward compatibility
+                self.config = config_data
+            except ValidationError as e:
+                # Format Pydantic validation errors for better readability
+                error_messages = []
+                for error in e.errors():
+                    field_path = " -> ".join(str(loc) for loc in error["loc"])
+                    error_messages.append(f"  • {field_path}: {error['msg']}")
+                raise ConfigurationError("配置驗證失敗:\n" + "\n".join(error_messages))
 
             print(f"✅ 配置載入成功: {self.config_file}")
             return self.config
 
         except json.JSONDecodeError as e:
             raise ConfigurationError(f"配置檔案 JSON 格式錯誤: {e}")
+        except ConfigurationError:
+            raise
         except Exception as e:
             raise ConfigurationError(f"配置載入失敗: {e}")
 
-    def _validate_config(self):
-        """Validate loaded configuration structure"""
-        if not self.config:
-            raise ConfigurationError("配置為空")
-
-        # Check required sections
-        missing_sections = []
-        for section in self.REQUIRED_SECTIONS:
-            if section not in self.config:
-                missing_sections.append(section)
-
-        if missing_sections:
-            raise ConfigurationError(f"缺少必要配置區段: {', '.join(missing_sections)}")
-
-        # Validate API section
-        self._validate_section(self.config["api"], self.REQUIRED_API_FIELDS, "api")
-
-        # Validate business section
-        self._validate_section(
-            self.config["business"], self.REQUIRED_BUSINESS_FIELDS, "business"
-        )
-
-        # Validate reporting section
-        self._validate_section(
-            self.config["reporting"], self.REQUIRED_REPORTING_FIELDS, "reporting"
-        )
-
-        # Validate system section
-        self._validate_section(
-            self.config["system"], self.REQUIRED_SYSTEM_FIELDS, "system"
-        )
-
-        # Validate specific fields
-        self._validate_week_definition()
-        self._validate_cp_codes()
-        self._validate_service_mappings()
-
-    def _validate_section(
-        self, section: Dict[str, Any], required_fields: List[str], section_name: str
-    ):
-        """Validate a configuration section has required fields"""
-        missing_fields = []
-        for field in required_fields:
-            if field not in section:
-                missing_fields.append(field)
-
-        if missing_fields:
-            raise ConfigurationError(
-                f"配置區段 '{section_name}' 缺少必要欄位: {', '.join(missing_fields)}"
-            )
-
-    def _validate_week_definition(self):
-        """Validate week definition setting"""
-        week_def = self.config["reporting"]["week_definition"]
-        if week_def not in self.VALID_WEEK_DEFINITIONS:
-            raise ConfigurationError(
-                f"無效的週期定義: {week_def}. "
-                f"可用選項: {', '.join(self.VALID_WEEK_DEFINITIONS)}"
-            )
-
-        # If custom, check custom_start_day is provided
-        if week_def == "custom":
-            if "custom_start_day" not in self.config["reporting"]:
-                raise ConfigurationError(
-                    "使用 'custom' 週期定義時必須提供 'custom_start_day' 參數"
-                )
-
-            start_day = self.config["reporting"]["custom_start_day"]
-            if not isinstance(start_day, int) or start_day < 0 or start_day > 6:
-                raise ConfigurationError(
-                    f"custom_start_day 必須是 0-6 之間的整數 (0=週日, 6=週六)，當前值: {start_day}"
-                )
-
-    def _validate_cp_codes(self):
-        """Validate CP codes list"""
-        cp_codes = self.config["business"]["cp_codes"]
-        if not isinstance(cp_codes, list):
-            raise ConfigurationError("cp_codes 必須是陣列格式")
-
-        if len(cp_codes) == 0:
-            raise ConfigurationError("cp_codes 陣列不能為空")
-
-        # Check all CP codes are strings
-        for i, cp_code in enumerate(cp_codes):
-            if not isinstance(cp_code, str):
-                raise ConfigurationError(
-                    f"CP code at index {i} 必須是字串格式: {cp_code}"
-                )
-
-    def _validate_service_mappings(self):
-        """Validate service mappings structure"""
-        mappings = self.config["business"]["service_mappings"]
-        if not isinstance(mappings, dict):
-            raise ConfigurationError("service_mappings 必須是物件格式")
-
-        for cp_code, mapping in mappings.items():
-            if not isinstance(mapping, dict):
-                raise ConfigurationError(
-                    f"service_mappings['{cp_code}'] 必須是物件格式"
-                )
-
-            required_mapping_fields = ["name", "unit", "description"]
-            for field in required_mapping_fields:
-                if field not in mapping:
-                    raise ConfigurationError(
-                        f"service_mappings['{cp_code}'] 缺少必要欄位: {field}"
-                    )
+    def _ensure_config_loaded(self) -> Dict[str, Any]:
+        """Ensure config is loaded and return it"""
+        if self.config is None:
+            raise ConfigurationError("配置未載入，請先呼叫 load_config()")
+        return self.config
 
     # Accessor methods for easy configuration access
     def get_cp_codes(self) -> List[str]:
         """Get all CP codes list"""
-        return self.config["business"]["cp_codes"]
+        config = self._ensure_config_loaded()
+        return config["business"]["cp_codes"]  # type: ignore[no-any-return]
 
     def get_service_mappings(self) -> Dict[str, Dict[str, str]]:
         """Get service mappings dictionary"""
-        return self.config["business"]["service_mappings"]
+        config = self._ensure_config_loaded()
+        return config["business"]["service_mappings"]  # type: ignore[no-any-return]
 
     def get_region_mappings(self) -> Dict[str, str]:
         """Get region mappings dictionary"""
-        return self.config["reporting"]["region_mappings"]
+        config = self._ensure_config_loaded()
+        return config["reporting"]["region_mappings"]  # type: ignore[no-any-return]
 
     def get_target_regions(self) -> List[str]:
         """Get list of target regions to analyze"""
-        # Default to standard regions if not specified in config
-        return self.config["reporting"].get(
-            "target_regions", ["REGION_CODE_1", "REGION_CODE_2", "REGION_CODE_3"]
-        )
+        config = self._ensure_config_loaded()
+        # If target_regions is not specified, use all keys from region_mappings
+        if "target_regions" in config["reporting"]:
+            return config["reporting"]["target_regions"]  # type: ignore[no-any-return]
+        else:
+            # Use all region codes from region_mappings
+            return list(config["reporting"]["region_mappings"].keys())
 
     def get_billing_coefficient(self) -> float:
         """Get billing coefficient"""
-        return self.config["business"]["billing_coefficient"]
+        config = self._ensure_config_loaded()
+        return config["business"]["billing_coefficient"]  # type: ignore[no-any-return]
 
     def get_api_endpoints(self) -> Dict[str, str]:
         """Get API endpoints"""
-        return self.config["api"]["endpoints"]
+        config = self._ensure_config_loaded()
+        return config["api"]["endpoints"]  # type: ignore[no-any-return]
 
     def get_max_retries(self) -> int:
         """Get maximum retry attempts"""
-        return self.config["api"]["max_retries"]
+        config = self._ensure_config_loaded()
+        return config["api"]["max_retries"]  # type: ignore[no-any-return]
 
-    def get_request_timeout(self) -> int:
-        """Get request timeout in seconds"""
-        return self.config["api"]["timeout"]
+    def get_request_timeout(self, api_type: Optional[str] = None) -> int:
+        """
+        Get request timeout in seconds for specific API type.
+
+        Args:
+            api_type: API type ("traffic" or "emissions"). If None, returns default timeout.
+
+        Returns:
+            int: Timeout in seconds
+        """
+        config = self._ensure_config_loaded()
+        if api_type:
+            # Try to get API-specific timeout first
+            api_timeouts = config.get("api", {}).get("timeouts", {})
+            if api_type.lower() in api_timeouts:
+                return api_timeouts[api_type.lower()]  # type: ignore[no-any-return]
+
+        # Fall back to default timeout
+        return config["api"]["timeout"]  # type: ignore[no-any-return]
 
     def get_data_point_limit(self) -> int:
         """Get data point limit"""
-        return self.config["system"]["data_point_limit"]
+        config = self._ensure_config_loaded()
+        return config["system"]["data_point_limit"]  # type: ignore[no-any-return]
 
     def get_week_definition(self) -> str:
         """Get week definition setting"""
-        return self.config["reporting"]["week_definition"]
+        config = self._ensure_config_loaded()
+        return config["reporting"]["week_definition"]  # type: ignore[no-any-return]
 
     def get_custom_start_day(self) -> Optional[int]:
         """Get custom start day (if week_definition is 'custom')"""
-        return self.config["reporting"].get("custom_start_day")
+        config = self._ensure_config_loaded()
+        return config["reporting"].get("custom_start_day")  # type: ignore[no-any-return]
 
     def get_week_start_offset(self) -> int:
         """
@@ -244,6 +178,7 @@ class ConfigLoader:
             int: Days to offset from Sunday (0) to get the desired week start
                  0 = Sunday, 1 = Monday, etc.
         """
+        _ = self._ensure_config_loaded()  # Ensure config is loaded
         week_def = self.get_week_definition()
 
         if week_def == "sunday_to_saturday":
@@ -253,7 +188,10 @@ class ConfigLoader:
         elif week_def == "monday_to_friday":
             return 1  # Week starts on Monday (5-day week)
         elif week_def == "custom":
-            return self.get_custom_start_day()
+            custom_day = self.get_custom_start_day()
+            if custom_day is None:
+                raise ConfigurationError("custom week requires custom_start_day")
+            return custom_day
         else:
             raise ConfigurationError(f"未支援的週期定義: {week_def}")
 
@@ -264,6 +202,7 @@ class ConfigLoader:
         Returns:
             int: Number of days in the reporting week
         """
+        _ = self._ensure_config_loaded()  # Ensure config is loaded
         week_def = self.get_week_definition()
 
         if week_def == "monday_to_friday":
@@ -279,8 +218,9 @@ class ConfigLoader:
             int: Base for exponential backoff calculation (delay = base^attempt).
                  Defaults to 2 if not configured.
         """
-        return (
-            self.config.get("api", {})
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("api", {})
             .get("retry_delays", {})
             .get("exponential_backoff_base", 2)
         )
@@ -293,8 +233,9 @@ class ConfigLoader:
             float: Fixed delay after network errors in seconds.
                    Defaults to 1.0 if not configured.
         """
-        return (
-            self.config.get("api", {})
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("api", {})
             .get("retry_delays", {})
             .get("network_error_delay", 1.0)
         )
@@ -307,10 +248,87 @@ class ConfigLoader:
             float: Delay between API calls in seconds.
                    Defaults to 0.5 if not configured.
         """
-        return (
-            self.config.get("api", {})
-            .get("retry_delays", {})
-            .get("rate_limit_delay", 0.5)
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("api", {}).get("retry_delays", {}).get("rate_limit_delay", 0.5)
+        )
+
+    def get_max_workers(self) -> int:
+        """
+        Get maximum number of concurrent workers for parallel API requests.
+
+        Returns:
+            int: Maximum concurrent workers. Defaults to 3 if not configured.
+        """
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {}).get("concurrency", {}).get("max_workers", 3)
+        )
+
+    def get_pool_connections(self) -> int:
+        """
+        Get number of HTTP connection pools to cache.
+
+        Returns:
+            int: Pool connections. Defaults to 10 if not configured.
+        """
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {}).get("concurrency", {}).get("pool_connections", 10)
+        )
+
+    def get_pool_maxsize(self) -> int:
+        """
+        Get maximum number of connections per pool.
+
+        Returns:
+            int: Pool maxsize. Defaults to 20 if not configured.
+        """
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {}).get("concurrency", {}).get("pool_maxsize", 20)
+        )
+
+    def get_circuit_breaker_failure_threshold(self) -> int:
+        """
+        Get circuit breaker failure threshold.
+
+        Returns:
+            int: Number of failures before opening circuit. Defaults to 3.
+        """
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {})
+            .get("circuit_breaker", {})
+            .get("failure_threshold", 3)
+        )
+
+    def get_circuit_breaker_recovery_timeout(self) -> int:
+        """
+        Get circuit breaker recovery timeout.
+
+        Returns:
+            int: Seconds before attempting recovery. Defaults to 30.
+        """
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {})
+            .get("circuit_breaker", {})
+            .get("recovery_timeout", 30)
+        )
+
+    def get_circuit_breaker_success_threshold(self) -> int:
+        """
+        Get circuit breaker success threshold.
+
+        Returns:
+            int: Successes needed to close circuit from half-open. Defaults to 2.
+        """
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("system", {})
+            .get("circuit_breaker", {})
+            .get("success_threshold", 2)
         )
 
     def get_data_point_warning_threshold(self) -> float:
@@ -322,8 +340,9 @@ class ConfigLoader:
                    For example, 0.9 means warn at 90% of limit.
                    Defaults to 0.9 if not configured.
         """
-        return (
-            self.config.get("api", {})
+        config = self._ensure_config_loaded()
+        return (  # type: ignore[no-any-return]
+            config.get("api", {})
             .get("thresholds", {})
             .get("data_point_warning_ratio", 0.9)
         )
@@ -336,7 +355,29 @@ class ConfigLoader:
             str: Section name in ~/.edgerc file.
                  Defaults to 'default' if not configured.
         """
-        return self.config.get("api", {}).get("edgerc_section", "default")
+        config = self._ensure_config_loaded()
+        return config.get("api", {}).get("edgerc_section", "default")  # type: ignore[no-any-return]
+
+    def get_auth_source(self) -> str:
+        """
+        Get authentication source.
+
+        Returns:
+            str: Authentication source ('edgerc', 'env', or 'aws').
+                 Defaults to 'edgerc' if not configured.
+        """
+        config = self._ensure_config_loaded()
+        return config.get("authentication", {}).get("source", "edgerc")  # type: ignore[no-any-return]
+
+    def get_edgerc_path(self) -> Optional[str]:
+        """
+        Get custom .edgerc file path.
+
+        Returns:
+            Optional[str]: Custom path to .edgerc file, or None to use default (~/.edgerc)
+        """
+        config = self._ensure_config_loaded()
+        return config.get("authentication", {}).get("edgerc_path")  # type: ignore[no-any-return]
 
     def print_config_summary(self):
         """Print a summary of loaded configuration (without sensitive data)"""

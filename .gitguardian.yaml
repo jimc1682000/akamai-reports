@@ -1,0 +1,22 @@
+# GitGuardian configuration file
+# https://docs.gitguardian.com/ggshield-docs/reference/configuration
+
+# Secrets scanning configuration
+version: 2
+
+# Ignore patterns for test files and documentation
+# Test files contain fake secrets for validating SanitizingLogger functionality
+paths-ignore:
+  - tests/**
+  - '**/*test*.py'
+  - '**/test_*.py'
+  - docs/**
+  - '*.md'
+  - config.template.json
+
+# Ignore specific secret matches (for test fixtures)
+matches-ignore:
+  - name: test-sanitizing-logger-fixtures
+    match: tests/test_sanitizing_logger.py
+  - name: test-secrets-fixtures
+    match: tests/test_secrets.py

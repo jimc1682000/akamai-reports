@@ -11,19 +11,20 @@ Date: 2025-10-02
 """
 
 import argparse
+from datetime import datetime
 
 from tools.lib.api_client import (
     get_all_regional_traffic,
     get_all_service_traffic,
     get_total_edge_traffic,
-    setup_authentication,
 )
-from tools.lib.config_loader import load_configuration
+from tools.lib.container import ServiceContainer
 from tools.lib.exceptions import (
     AkamaiAPIError,
     APIAuthenticationError,
     APIRateLimitError,
     APITimeoutError,
+    CircuitBreakerOpenError,
 )
 from tools.lib.logger import logger
 from tools.lib.reporters import (
@@ -34,29 +35,91 @@ from tools.lib.reporters import (
 from tools.lib.time_handler import get_time_range
 
 
-def main() -> int:
-    """Main function to orchestrate the weekly traffic report generation"""
+def validate_date_format(date_str: str) -> str:
+    """
+    Validate and sanitize date input.
+
+    Accepts YYYY-MM-DD or ISO-8601 format and returns ISO-8601 with time.
+
+    Args:
+        date_str: Date string to validate
+
+    Returns:
+        ISO-8601 formatted datetime string (YYYY-MM-DDTHH:MM:SSZ)
+
+    Raises:
+        argparse.ArgumentTypeError: If date format is invalid
+
+    Examples:
+        >>> validate_date_format("2025-01-01")
+        '2025-01-01T00:00:00Z'
+        >>> validate_date_format("2025-01-01T12:00:00Z")
+        '2025-01-01T12:00:00Z'
+    """
+    try:
+        # Try parsing as ISO-8601 first
+        if "T" in date_str:
+            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        else:
+            # Parse YYYY-MM-DD format and set time to 00:00:00
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+
+        # Return in consistent ISO-8601 format
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(
+            f"Invalid date format: '{date_str}'. "
+            f"Expected YYYY-MM-DD or ISO-8601 format (e.g., 2025-01-01 or 2025-01-01T00:00:00Z)"
+        ) from e
+
+
+def main(container: ServiceContainer = None) -> int:
+    """
+    Main function to orchestrate the weekly traffic report generation.
+
+    Args:
+        container: Optional dependency injection container for testing
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
 
     logger.info("🚀 週報流量數據腳本啟動")
     logger.info("=" * 50)
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description="Generate weekly Akamai traffic report"
+        description="Generate weekly Akamai traffic report",
+        epilog="Example: python traffic.py --start 2025-01-01 --end 2025-01-07",
     )
-    parser.add_argument("--start", help="Start date (YYYY-MM-DD)", type=str)
-    parser.add_argument("--end", help="End date (YYYY-MM-DD)", type=str)
+    parser.add_argument(
+        "--start",
+        help="Start date (YYYY-MM-DD or ISO-8601 format)",
+        type=validate_date_format,
+        metavar="DATE",
+    )
+    parser.add_argument(
+        "--end",
+        help="End date (YYYY-MM-DD or ISO-8601 format)",
+        type=validate_date_format,
+        metavar="DATE",
+    )
 
     args = parser.parse_args()
 
     try:
-        # Load configuration
+        # Initialize service container
+        if container is None:
+            container = ServiceContainer()
+
+        # Get dependencies from container
         logger.info("📋 載入配置檔案...")
-        config_loader = load_configuration()
+        config_loader = container.config_loader
         config_loader.print_config_summary()
 
-        # Initialize authentication
-        auth = setup_authentication(config_loader)
+        # Get authentication from container
+        auth = container.auth
 
         # Get time range
         start_date, end_date = get_time_range(args, config_loader)
@@ -149,6 +212,12 @@ def main() -> int:
     except APITimeoutError as e:
         logger.error(f"\n❌ 請求超時: {e}")
         logger.error("   請檢查網路連線或稍後再試")
+        return 1
+
+    except CircuitBreakerOpenError as e:
+        logger.error(f"\n❌ 電路斷路器開啟: {e}")
+        logger.error("   API 服務異常,系統已進入保護模式")
+        logger.error(f"   請等待 {e.time_until_retry:.0f} 秒後重試")
         return 1
 
     except AkamaiAPIError as e:
