@@ -1,35 +1,22 @@
 # GitGuardian configuration file
-# https://docs.gitguardian.com/ggshield-docs/integrations/git-hooks/pre-commit
+# https://docs.gitguardian.com/ggshield-docs/reference/configuration
 
 # Secrets scanning configuration
 version: 2
 
 # Ignore patterns for test files and documentation
 # Test files contain fake secrets for validating SanitizingLogger functionality
-ignored-paths:
-  - 'tests/**'
+paths-ignore:
+  - tests/**
   - '**/*test*.py'
   - '**/test_*.py'
-  - 'docs/**'
+  - docs/**
   - '*.md'
-  - 'config.template.json'  # Template file with placeholder values
+  - config.template.json
 
-# Ignore specific patterns (optional)
-# Use this if you need more fine-grained control
-# ignored-matches:
-#   - name: test-secrets
-#     match: "akab-[0-9a-f]+"
-
-# Detector-specific configuration
-detectors:
-  # Enable all detectors by default
-  - name: all
-    enabled: true
-
-# Output configuration
-output:
-  show_secrets: false  # Don't show secrets in output for security
-  verbose: false
-
-# Exit codes
-# exit-zero: false  # Fail on secret detection (default)
+# Ignore specific secret matches (for test fixtures)
+matches-ignore:
+  - name: test-sanitizing-logger-fixtures
+    match: tests/test_sanitizing_logger.py
+  - name: test-secrets-fixtures
+    match: tests/test_secrets.py
