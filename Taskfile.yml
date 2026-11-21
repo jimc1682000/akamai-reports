@@ -216,7 +216,7 @@ tasks:
     cmds:
       - echo "📖 Project Documentation:"
       - 'echo "- README.md: Project overview and usage"'
-      - 'echo "- CLAUDE.md: Development guidance"'
+      - 'echo "- AGENTS.md: Development guidance"'
       - 'echo "- config.template.json: Configuration template"'
       - 'echo "- Taskfile.yml: Available tasks (this file)"'
 
