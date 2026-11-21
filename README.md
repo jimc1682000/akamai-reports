@@ -364,7 +364,7 @@ akamai-reports/
 ├── config.json                       # 實際配置檔案 (不在版本控制中)
 ├── config.template.json              # 配置模板 (可安全分享)
 ├── README.md                         # 專案說明文檔
-├── CLAUDE.md                         # Claude Code 開發指導文檔
+├── AGENTS.md                         # AI agent 開發指導文檔
 ├── PROJECT_STRUCTURE.md              # 專案結構詳細說明
 ├── Taskfile.yml                      # 自動化任務管理
 ├── pyproject.toml                    # Python 專案配置 + Ruff 設定

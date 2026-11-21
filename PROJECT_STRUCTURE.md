@@ -32,7 +32,7 @@ akamai-traffic/
 │   ├── test_api_metadata.py
 │   └── test_tw_early_daterange.py
 │
-├── CLAUDE.md                          # Claude AI 專案指引
+├── AGENTS.md                          # AI agent 專案指引
 ├── README.md                          # 專案說明
 ├── Taskfile.yml                       # Task 命令定義
 └── requirements-test.txt              # 測試依賴
